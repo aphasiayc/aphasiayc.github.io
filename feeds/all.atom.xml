@@ -1,5 +1,209 @@
 <?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom"><title>Notes</title><link href="https://aphasiayc.github.io/" rel="alternate"></link><link href="https://aphasiayc.github.io/feeds/all.atom.xml" rel="self"></link><id>https://aphasiayc.github.io/</id><updated>2019-05-25T23:08:28+08:00</updated><entry><title>xv6: minimal assembly</title><link href="https://aphasiayc.github.io/2019/xv6-minimal-assembly.html" rel="alternate"></link><published>2019-05-25T23:08:28+08:00</published><updated>2019-05-25T23:08:28+08:00</updated><author><name>aphasiayc</name></author><id>tag:aphasiayc.github.io,2019-05-25:/2019/xv6-minimal-assembly.html</id><summary type="html">&lt;p&gt;和现代操作系统比起来，xv6基本只能算是个复古风格的玩具模型。它仿照unix version 6设计，不涉及现代操作系统中各种复杂的优化。但好处是简单明了，码工精美，十分适合作为我等初级选手的入门教程。&lt;/p&gt;
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Notes</title><link href="https://aphasiayc.github.io/" rel="alternate"></link><link href="https://aphasiayc.github.io/feeds/all.atom.xml" rel="self"></link><id>https://aphasiayc.github.io/</id><updated>2019-05-26T19:47:32+08:00</updated><entry><title>xv6: how kernel boots</title><link href="https://aphasiayc.github.io/2019/xv6-how-kernel-boots.html" rel="alternate"></link><published>2019-05-26T19:47:32+08:00</published><updated>2019-05-26T19:47:32+08:00</updated><author><name>aphasiayc</name></author><id>tag:aphasiayc.github.io,2019-05-26:/2019/xv6-how-kernel-boots.html</id><summary type="html">&lt;p&gt;通常当我们运行某个程序的时候，其实是kernel替我们在运行它，具体的工作包括启动、维护它的状态，以及在结束后清理现场等。这当中的一个问题是，kernel本身作为一个（特殊的）程序是如何启动的？&lt;/p&gt;
+&lt;p&gt;事实上kernel启动的过程包括了若干个阶段：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;首先由BIOS载入boot loader&lt;/li&gt;
+&lt;li&gt;boot loader启动segment机制实现地址转译，设置内存栈，然后载入并运行elf格式的kernel程序&lt;/li&gt;
+&lt;li&gt;kernel实现内存分页，启动中断、多核并行等机制，并最终创建系统中的第一个进程来运行shell，为kernel和外界的交互提供入口。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;这是一个层层递进的过程，每一个阶段的工作都是为下一个阶段准备了必要的条件。这当中也将涉及到若干硬件相关的细节。&lt;/p&gt;
+&lt;h2&gt;BIOS&lt;/h2&gt;
+&lt;p&gt;x86启动时，系统的一个CPU成为Bootstrap Processor(BSP)，运行系统初始化指令。其余CPU都成为Application Processor，等待BSP的信号。&lt;/p&gt;
+&lt;p&gt;BSP首先运行BIOS（Basic I/O System）中的指令。BIOS的工作是初始化硬件、从硬盘boot sector中读取boot loader（负责将kernel载入内存的程序）。xv6的boot loader是一段很短的指令（&amp;lt;512 bytes），存储在第一个disk sector中 …&lt;/p&gt;</summary><content type="html">&lt;p&gt;通常当我们运行某个程序的时候，其实是kernel替我们在运行它，具体的工作包括启动、维护它的状态，以及在结束后清理现场等。这当中的一个问题是，kernel本身作为一个（特殊的）程序是如何启动的？&lt;/p&gt;
+&lt;p&gt;事实上kernel启动的过程包括了若干个阶段：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;首先由BIOS载入boot loader&lt;/li&gt;
+&lt;li&gt;boot loader启动segment机制实现地址转译，设置内存栈，然后载入并运行elf格式的kernel程序&lt;/li&gt;
+&lt;li&gt;kernel实现内存分页，启动中断、多核并行等机制，并最终创建系统中的第一个进程来运行shell，为kernel和外界的交互提供入口。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;这是一个层层递进的过程，每一个阶段的工作都是为下一个阶段准备了必要的条件。这当中也将涉及到若干硬件相关的细节。&lt;/p&gt;
+&lt;h2&gt;BIOS&lt;/h2&gt;
+&lt;p&gt;x86启动时，系统的一个CPU成为Bootstrap Processor(BSP)，运行系统初始化指令。其余CPU都成为Application Processor，等待BSP的信号。&lt;/p&gt;
+&lt;p&gt;BSP首先运行BIOS（Basic I/O System）中的指令。BIOS的工作是初始化硬件、从硬盘boot sector中读取boot loader（负责将kernel载入内存的程序）。xv6的boot loader是一段很短的指令（&amp;lt;512 bytes），存储在第一个disk sector中。BIOS将boot loader载入到起始地址为&lt;code&gt;0x7c00&lt;/code&gt;的内存中。&lt;/p&gt;
+&lt;p&gt;BIOS运行结束时，%eip被设为boot loader指令起始的位置&lt;code&gt;0x7c00&lt;/code&gt;。此后系统就交由boot loader控制。此时状态如下图所示。&lt;/p&gt;
+&lt;p&gt;&lt;img alt="end of bios" src="https://aphasiayc.github.io/2019/images/boot.001.png"&gt;&lt;/p&gt;
+&lt;h2&gt;Boot Loader&lt;/h2&gt;
+&lt;p&gt;xv6的boot loader分为汇编部分（bootsam.S）和C语言部分（bootmain.c）。汇编部分启动x86的protected mode，在内存中为执行C代码分配栈。C语言部分从硬盘读取kernel指令，并将它加载到内存指定位置。&lt;/p&gt;
+&lt;h3&gt;支线剧情：real/protected mode&lt;/h3&gt;
+&lt;p&gt;通常程序中的内存地址是一个“逻辑地址”，包括segment和offset两部分。逻辑地址需要经过转译才能对应到内存单元中的实际位置，即“物理地址”。转译过程的存在使得相同的程序能在不同的硬件上运行。&lt;/p&gt;
+&lt;p&gt;上古时代x86系统的通用寄存器和segment寄存器都是16位，内存总线是20位（2&lt;sup&gt;20&lt;/sup&gt; = 1 MB的地址）。从逻辑地址到物理地址的转译方式是将相应segment寄存器中的地址（segment在物理内存中的起始地址）左移4位（20位，最末4位为0），加上指令中的16位offset。&lt;/p&gt;
+&lt;p&gt;后来为了支持更大的地址空间，x86引入了一种新的模式protected mode，而将之前的模式称为real mode。为了保持兼容，x86在启动之初都处于real mode中。&lt;/p&gt;
+&lt;p&gt;protected mode引入了segment descriptor。一个segment descriptor长度为64位，其中包括：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;32-bit base address&lt;/li&gt;
+&lt;li&gt;20-bit length limit，limit所标示的长度以4 kB为单位（2&lt;sup&gt;12&lt;/sup&gt; bit），因此一个segment最长可达4 GB（2&lt;sup&gt;12&lt;/sup&gt;&amp;times;2&lt;sup&gt;20&lt;/sup&gt; bit）&lt;/li&gt;
+&lt;li&gt;some flags: 2-bit descriptor privilege level（DPL）&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;若干segment descriptor组成一个segment descriptor table（SDT），它的起始地址储存在%gdtr或%ldtr中。&lt;/p&gt;
+&lt;p&gt;&lt;img alt="segment descriptor and selector" src="https://aphasiayc.github.io/2019/images/boot.002.png"&gt;&lt;/p&gt;
+&lt;p&gt;与此对应，segment寄存器存储的不再是segment的起始地址，而是segment selector，用于指示SDT中的某一行。segment selector长度位16 bit，其中包含：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;13-bit index: 8192 entries in total&lt;/li&gt;
+&lt;li&gt;1-bit Tabel Indicator(TI):0 for global SDT(%gdtr), 1 for local SDT(%ldtr)&lt;/li&gt;
+&lt;li&gt;2-bit Request Privilege Level(RPL): 0 for the most privileged&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;在protected mode中从逻辑地址到物理地址的转译方式是：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;根据逻辑地址中的segment部分，从相应segment寄存器（%cs、%ss、%ds等）获取segment selector&lt;/li&gt;
+&lt;li&gt;根据selector中的TI找到相应SDT（%gdtr或者%ldtr），根据selector中的index访问SDT的对应位置，获得segment descriptor&lt;/li&gt;
+&lt;li&gt;比较RPL和DPL以决定访问是否合法&lt;/li&gt;
+&lt;li&gt;如果合法（RPL&amp;le;DPL），则用segment descriptor中的base地址加上逻辑地址中的offset部分，获得一个线性地址&lt;/li&gt;
+&lt;li&gt;如果此线性地址在segment descriptor中的limit所限定的范围内，那么它就是所求的物理地址。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;通常用寄存器%cr0中的标志位&lt;code&gt;$CR0_PE&lt;/code&gt;来标志protected mode是否启用。&lt;/p&gt;
+&lt;h3&gt;assembly bootstrap&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;bootsam.S的第一个动作是暂时关闭中断。此时x86还处在real mode中，只能运行16位指令。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="na"&gt;.code16&lt;/span&gt;                       &lt;span class="c"&gt;# x86启动时处于real mode，运行16位指令&lt;/span&gt;
+&lt;span class="na"&gt;.globl&lt;/span&gt; &lt;span class="no"&gt;start&lt;/span&gt;
+&lt;span class="nl"&gt;start:&lt;/span&gt;
+  &lt;span class="nf"&gt;cli&lt;/span&gt;                         &lt;span class="c"&gt;# BIOS运行时启用了interrupt，在这里暂时关闭&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;ul&gt;
+&lt;li&gt;将segment registers（%ds、%es、%ss）置零。然后将SDT（&lt;code&gt;gdtdesc&lt;/code&gt;）加载到%gdtr中。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;  &lt;span class="n"&gt;xorw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="k"&gt;Set&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt; &lt;span class="k"&gt;to&lt;/span&gt; &lt;span class="n"&gt;zero&lt;/span&gt;
+  &lt;span class="n"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ds&lt;/span&gt;             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="k"&gt;Data&lt;/span&gt; &lt;span class="n"&gt;Segment&lt;/span&gt;
+  &lt;span class="n"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;es&lt;/span&gt;             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;Extra&lt;/span&gt; &lt;span class="n"&gt;Segment&lt;/span&gt;
+  &lt;span class="n"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ax&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;ss&lt;/span&gt;             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;Stack&lt;/span&gt; &lt;span class="n"&gt;Segment&lt;/span&gt;
+
+  &lt;span class="n"&gt;lgdt&lt;/span&gt;    &lt;span class="n"&gt;gdtdesc&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;&lt;code&gt;gdtdesc&lt;/code&gt;是代码中手工定义的一个SDT。共包含null、code、data三个descriptor。其中null segment长度为0，是个无效的映射，任何对应到这个segment的逻辑地址都会抛出异常。而code和data segment的范围是[0, 4 GB)，xv6在内存管理中几乎不使用segment功能，此处&lt;code&gt;gdtdesc&lt;/code&gt;的设置只是简单地将逻辑地址直接映射到线性区间上。&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="n"&gt;Bootstrap&lt;/span&gt; &lt;span class="n"&gt;GDT&lt;/span&gt;
+&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;p2align&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;                                &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="k"&gt;force&lt;/span&gt; &lt;span class="mi"&gt;4&lt;/span&gt; &lt;span class="n"&gt;byte&lt;/span&gt; &lt;span class="n"&gt;alignment&lt;/span&gt;
+&lt;span class="n"&gt;gdt&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+  &lt;span class="n"&gt;SEG_NULLASM&lt;/span&gt;                             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="k"&gt;null&lt;/span&gt; &lt;span class="n"&gt;segment&lt;/span&gt;
+  &lt;span class="n"&gt;SEG_ASM&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;STA_X&lt;/span&gt;&lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="n"&gt;STA_R&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="n"&gt;x0&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="n"&gt;xffffffff&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;   &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="n"&gt;code&lt;/span&gt; &lt;span class="n"&gt;segment&lt;/span&gt;&lt;span class="err"&gt;，可读可执行，&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="err"&gt;～&lt;/span&gt;&lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="n"&gt;GB&lt;/span&gt;
+  &lt;span class="n"&gt;SEG_ASM&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;STA_W&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="n"&gt;x0&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="n"&gt;xffffffff&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;         &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="k"&gt;data&lt;/span&gt; &lt;span class="n"&gt;segment&lt;/span&gt;&lt;span class="err"&gt;，可写，&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="err"&gt;～&lt;/span&gt;&lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="n"&gt;GB&lt;/span&gt;
+
+&lt;span class="n"&gt;gdtdesc&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+  &lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;word&lt;/span&gt;   &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;gdtdesc&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="n"&gt;gdt&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="n"&gt;sizeof&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;gdt&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+  &lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;long&lt;/span&gt;   &lt;span class="n"&gt;gdt&lt;/span&gt;                             &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="n"&gt;address&lt;/span&gt; &lt;span class="n"&gt;gdt&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;ul&gt;
+&lt;li&gt;设置%cr0，指示protected mode启动。此后开始执行32位指令。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;  &lt;span class="n"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;cr0&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;eax&lt;/span&gt;
+  &lt;span class="n"&gt;orl&lt;/span&gt;     &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="n"&gt;CR0_PE&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;eax&lt;/span&gt;                &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="n"&gt;CR0_PE&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+  &lt;span class="n"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;eax&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;cr0&lt;/span&gt;          
+
+  &lt;span class="n"&gt;ljmp&lt;/span&gt;    &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;SEG_KCODE&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&amp;lt;&lt;/span&gt;&lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="n"&gt;start32&lt;/span&gt;    &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="n"&gt;SEG_KCODE&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;&lt;code&gt;ljmp&lt;/code&gt;指令用它的第一个参数设置%cs，用第二个参数设置%eip，并且跳转至这个位置。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;设置其他的segment寄存器。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;.&lt;span class="nv"&gt;code32&lt;/span&gt;  # 此时&lt;span class="nv"&gt;protected&lt;/span&gt; &lt;span class="nv"&gt;mode&lt;/span&gt;已经启动，执行&lt;span class="mi"&gt;32&lt;/span&gt;位代码
+&lt;span class="nv"&gt;start32&lt;/span&gt;:
+  # &lt;span class="nv"&gt;Set&lt;/span&gt; &lt;span class="nv"&gt;up&lt;/span&gt; &lt;span class="nv"&gt;the&lt;/span&gt; &lt;span class="nv"&gt;protected&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="nv"&gt;mode&lt;/span&gt; &lt;span class="nv"&gt;data&lt;/span&gt; &lt;span class="nv"&gt;segment&lt;/span&gt; &lt;span class="nv"&gt;registers&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    $&lt;span class="ss"&gt;(&lt;/span&gt;&lt;span class="nv"&gt;SEG_KDATA&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&amp;lt;&lt;/span&gt;&lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="ss"&gt;)&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;    # $&lt;span class="nv"&gt;SEG_KDATA&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ds&lt;/span&gt;                # &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="nv"&gt;DS&lt;/span&gt;: &lt;span class="nv"&gt;Data&lt;/span&gt; &lt;span class="nv"&gt;Segment&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;es&lt;/span&gt;                # &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="nv"&gt;ES&lt;/span&gt;: &lt;span class="nv"&gt;Extra&lt;/span&gt; &lt;span class="nv"&gt;Segment&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ss&lt;/span&gt;                # &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="nv"&gt;SS&lt;/span&gt;: &lt;span class="nv"&gt;Stack&lt;/span&gt; &lt;span class="nv"&gt;Segment&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    &lt;span class="mh"&gt;$0&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;                 # &lt;span class="nv"&gt;Zero&lt;/span&gt; &lt;span class="nv"&gt;segments&lt;/span&gt; &lt;span class="nv"&gt;not&lt;/span&gt; &lt;span class="nv"&gt;ready&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="nv"&gt;use&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;fs&lt;/span&gt;                # &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="nv"&gt;FS&lt;/span&gt;
+  &lt;span class="nv"&gt;movw&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;ax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;gs&lt;/span&gt;                # &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="nv"&gt;GS&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;&lt;code&gt;$(SEG_KCODE&amp;lt;&amp;lt;3)&lt;/code&gt;和&lt;code&gt;$(SEG_KDATA&amp;lt;&amp;lt;3)&lt;/code&gt;都是segment selector，分别指向&lt;code&gt;gdtdesc&lt;/code&gt;中的code和data segment，其中左移的3位将TI和RPL都设置为0。设置完成后%cs指向&lt;code&gt;gdtdesc&lt;/code&gt;中的code segment，%ds、%ss、%es指向data segment，%fs、%gs指向null segment。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;为运行C代码设置一个栈。在分页机制启动之前，系统需要手工分配内存以避免冲突。xv6预设boot loader位于内存0x7c00到0x7e00之间，kernel位于内存0x100000之后，0xa0000至0x100000之间有一些硬件设备占用的区域。因此xv6将%esp设置到boot loader开始的位置0x7c00（栈向内存地址低的方向发展，它将占用0x7c00之前的内存区域）。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;  &lt;span class="o"&gt;#&lt;/span&gt; &lt;span class="k"&gt;Set&lt;/span&gt; &lt;span class="n"&gt;up&lt;/span&gt; &lt;span class="n"&gt;the&lt;/span&gt; &lt;span class="n"&gt;stack&lt;/span&gt; &lt;span class="n"&gt;pointer&lt;/span&gt; &lt;span class="k"&gt;and&lt;/span&gt; &lt;span class="k"&gt;call&lt;/span&gt; &lt;span class="k"&gt;into&lt;/span&gt; &lt;span class="k"&gt;C&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;
+  &lt;span class="n"&gt;movl&lt;/span&gt;    &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="k"&gt;start&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;esp&lt;/span&gt;
+  &lt;span class="k"&gt;call&lt;/span&gt;    &lt;span class="n"&gt;bootmain&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;它结束的时候调用c语言编写的bootmain函数（系统运行的第一个c函数）。此时系统的状态如下图所示。&lt;/p&gt;
+&lt;p&gt;&lt;img alt="end of assembly bootstrap" src="https://aphasiayc.github.io/2019/images/boot.003.png"&gt;&lt;/p&gt;
+&lt;h3&gt;支线剧情： Executable and Linkable Format&lt;/h3&gt;
+&lt;p&gt;the elf format...&lt;/p&gt;
+&lt;h3&gt;c bootstrap&lt;/h3&gt;
+&lt;p&gt;bootmain.c从硬盘上读取kernel（elf格式的可执行文件），加载到内存制定位置0x100000(定义在kernel.ld中)。xv6预设kernel指令连续地储存在硬盘上boot loader之后的区域内（第二个sector以及之后）。这当然是极其粗暴的简化。现代操作系统需要处理的情况复杂得多，kernel通常存在于某个文件系统中，因此boot loader需要能够操作文件系统，它本身就接近于一个小型的操作系统。&lt;/p&gt;
+&lt;p&gt;完成后bootmain将控制流交接给kernel的entry。此时系统状态如下图所示。&lt;/p&gt;
+&lt;p&gt;&lt;img alt="end of c bootstrap" src="https://aphasiayc.github.io/2019/images/boot.004.png"&gt;&lt;/p&gt;
+&lt;h2&gt;Kernel entry&lt;/h2&gt;
+&lt;p&gt;xv6的内存管理主要依赖分页机制。kernel entry部分将启动分页。&lt;/p&gt;
+&lt;h3&gt;支线剧情：分页&lt;/h3&gt;
+&lt;p&gt;分页机制主要的想法是将连续的内存空间分成固定大小的页（page），系统以页为单位分配内存。当某个应用程序需要更多内存时，系统从未分配内存中取出一整页供它使用，应用程序可以对这部分内存作精细的操作；当前页写满之后，它可以再向系统申请新的一页。分页机制减少了系统内存分配的次数，可以更方便地实现内存隔离，并且解决了segment机制中难以解决的碎片化问题。&lt;/p&gt;
+&lt;p&gt;流程上，逻辑地址到物理地址的转译过程是先经segment转译为“线性地址”，再由分页系统最终转译为物理地址。&lt;/p&gt;
+&lt;p&gt;分页可能将连续线性地址映射到若干离散的物理地址上，于是系统系统需要额外维护一张分页表（page table）来记录这些映射关系。通常在32位系统中，每一个page table entry（PTE）长度为32位。其中包含20位physical page number(PPN)，记录这一页在物理内存中起始的位置，以及若干标志位。标志位中最重要的是&lt;code&gt;PTE_P&lt;/code&gt;，它标示当前PTE是否有效（是否对应物理内存）。&lt;/p&gt;
+&lt;p&gt;从虚拟地址到物理地址的转译方式是：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;将虚拟地址切分为index和offset两部分&lt;/li&gt;
+&lt;li&gt;根据index去分页表中查找相应PTE，如果其中&lt;code&gt;PTE_P&lt;/code&gt;为0，则这个虚拟地址在物理地址中没有对应&lt;/li&gt;
+&lt;li&gt;如果&lt;code&gt;PTP_P&lt;/code&gt;为1，则读取PTE中的PPN，PPN+offset即获得物理地址&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;通常用寄存器%cr0中的标志位&lt;code&gt;$CR0_PG&lt;/code&gt;来标志分页是否启用， %cr4保存分页的大小，%cr3保存分页表的起始物理地址。&lt;/p&gt;
+&lt;p&gt;&lt;img alt="page table" src="https://aphasiayc.github.io/2019/images/boot.005.png"&gt;&lt;/p&gt;
+&lt;h3&gt;第一个分页表&lt;/h3&gt;
+&lt;p&gt;kernel代码中手工设置了xv6运行过程中的第一个分页表&lt;code&gt;entrypgdir&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="c1"&gt;// main.c&lt;/span&gt;
+&lt;span class="n"&gt;pde_t&lt;/span&gt; &lt;span class="n"&gt;entrypgdir&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;NPDENTRIES&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;    &lt;span class="c1"&gt;// NPDENTRIES = 1024&lt;/span&gt;
+  &lt;span class="c1"&gt;// Map VA&amp;#39;s [0, 4MB) to PA&amp;#39;s [0, 4MB)&lt;/span&gt;
+  &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;PTE_P&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;PTE_W&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;PTE_PS&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+  &lt;span class="c1"&gt;// Map VA&amp;#39;s [KERNBASE, KERNBASE+4MB) to PA&amp;#39;s [0, 4MB)&lt;/span&gt;
+  &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;KERNBASE&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&amp;gt;&lt;/span&gt;&lt;span class="n"&gt;PDXSHIFT&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;PTE_P&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;PTE_W&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;PTE_PS&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;&lt;code&gt;entrypgdir&lt;/code&gt;选用的分页大小位4 MB，它包括两个有效的entry，分别将虚拟地址[0, 4 MB)和[2GB, 2GB + 4 MB)映射到物理地址[0, 4 MB)。分页机制启动之后，指令中所有的线性地址都需要经过分页表转译，kernel.ld设定了kernel指令中所有线性地址都处于高地址段[2GB, 2GB + 4 MB)。但分页刚启动时寄存器中存储的地址都还处于低地址段[0, 4 MB)中。为此&lt;code&gt;entrypgdir&lt;/code&gt;设定了两个entry，将高低两段线性地址都映射到相同的物理地址上，以解决二者不一致问题。&lt;/p&gt;
+&lt;h3&gt;entry&lt;/h3&gt;
+&lt;p&gt;&lt;code&gt;entry&lt;/code&gt;首先设置分页相关寄存器的状态，启动分页：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;.&lt;span class="nv"&gt;globl&lt;/span&gt; &lt;span class="nv"&gt;entry&lt;/span&gt;
+&lt;span class="nv"&gt;entry&lt;/span&gt;:
+
+  # &lt;span class="nv"&gt;Turn&lt;/span&gt; &lt;span class="nv"&gt;on&lt;/span&gt; &lt;span class="nv"&gt;page&lt;/span&gt; &lt;span class="nv"&gt;size&lt;/span&gt; &lt;span class="nv"&gt;extension&lt;/span&gt; &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="nv"&gt;Mbyte&lt;/span&gt; &lt;span class="nv"&gt;pages&lt;/span&gt;
+  &lt;span class="nv"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr4&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;
+  &lt;span class="nv"&gt;orl&lt;/span&gt;     $&lt;span class="ss"&gt;(&lt;/span&gt;&lt;span class="nv"&gt;CR4_PSE&lt;/span&gt;&lt;span class="ss"&gt;)&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;  # 支持&lt;span class="mi"&gt;4&lt;/span&gt; &lt;span class="nv"&gt;MB&lt;/span&gt;分页
+  &lt;span class="nv"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr4&lt;/span&gt;
+
+  # 设置&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr3&lt;/span&gt;，使它指向上述&lt;span class="nv"&gt;PDT&lt;/span&gt;的起始位置
+  &lt;span class="nv"&gt;movl&lt;/span&gt;    $&lt;span class="ss"&gt;(&lt;/span&gt;&lt;span class="nv"&gt;V2P_WO&lt;/span&gt;&lt;span class="ss"&gt;(&lt;/span&gt;&lt;span class="nv"&gt;entrypgdir&lt;/span&gt;&lt;span class="ss"&gt;))&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;  # &lt;span class="nv"&gt;entrypgdir&lt;/span&gt;是一个&lt;span class="nv"&gt;VA&lt;/span&gt;，需要经过&lt;span class="nv"&gt;V2P&lt;/span&gt;转换
+  &lt;span class="nv"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr3&lt;/span&gt;
+
+  # 设置&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr0&lt;/span&gt;，标示分页机制启动。
+  &lt;span class="nv"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr0&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;
+  &lt;span class="nv"&gt;orl&lt;/span&gt;     $&lt;span class="ss"&gt;(&lt;/span&gt;&lt;span class="nv"&gt;CR0_PG&lt;/span&gt;&lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="nv"&gt;CR0_WP&lt;/span&gt;&lt;span class="ss"&gt;)&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;  
+  &lt;span class="nv"&gt;movl&lt;/span&gt;    &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;eax&lt;/span&gt;, &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="nv"&gt;cr0&lt;/span&gt;       # 启动分页
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;另外由于&lt;code&gt;bootmain&lt;/code&gt;进入&lt;code&gt;entry&lt;/code&gt;之后函数没有返回，所以此处为之后执行c代码重新分配了一个栈，设定大小为4 kB：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;span class="na"&gt;.comm&lt;/span&gt; &lt;span class="no"&gt;stack&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="no"&gt;KSTACKSIZE&lt;/span&gt;    &lt;span class="c"&gt;# KSTACKSIZE = 4 kB&lt;/span&gt;
+  &lt;span class="nf"&gt;movl&lt;/span&gt; &lt;span class="no"&gt;$&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="no"&gt;stack&lt;/span&gt; &lt;span class="err"&gt;+&lt;/span&gt; &lt;span class="no"&gt;KSTACKSIZE&lt;/span&gt;&lt;span class="p"&gt;),&lt;/span&gt; &lt;span class="nv"&gt;%esp&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;最后跳转至kernel的main函数的起始位置。&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;  &lt;span class="n"&gt;mov&lt;/span&gt; &lt;span class="err"&gt;$&lt;/span&gt;&lt;span class="n"&gt;main&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="n"&gt;eax&lt;/span&gt;
+  &lt;span class="n"&gt;jmp&lt;/span&gt; &lt;span class="o"&gt;*%&lt;/span&gt;&lt;span class="n"&gt;eax&lt;/span&gt;
+&lt;/pre&gt;&lt;/div&gt;
+
+
+&lt;p&gt;至此进入kernel的&lt;code&gt;main&lt;/code&gt;函数。此时系统状态如下图所示。注意此时系统实际只能操作4 MB的物理内存。&lt;/p&gt;
+&lt;p&gt;&lt;img alt="end of kernel entry" src="https://aphasiayc.github.io/2019/images/boot.006.png"&gt;&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;main&lt;/code&gt;函数最主要的工作是启动系统中的第一个进程。“进程”是操作系统中一个及其关键的抽象，但在具体解释它之前我们需要先了解它的一些组成部分，包括地址空间、user mode和kernel mode、中断机制等。&lt;/p&gt;
+&lt;hr&gt;
+&lt;h4&gt;参考&lt;/h4&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture06-system-boot/lecture06-system-boot.pdf"&gt;UCI course on system boot&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf"&gt;xv6 Book&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://en.wikipedia.org/wiki/Protected_mode"&gt;wiki on x86 protected mode&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;</content></entry><entry><title>xv6: minimal assembly</title><link href="https://aphasiayc.github.io/2019/xv6-minimal-assembly.html" rel="alternate"></link><published>2019-05-25T23:08:28+08:00</published><updated>2019-05-25T23:08:28+08:00</updated><author><name>aphasiayc</name></author><id>tag:aphasiayc.github.io,2019-05-25:/2019/xv6-minimal-assembly.html</id><summary type="html">&lt;p&gt;和现代操作系统比起来，xv6基本只能算是个复古风格的玩具模型。它仿照unix version 6设计，不涉及现代操作系统中各种复杂的优化。但好处是简单明了，码工精美，十分适合作为我等初级选手的入门教程。&lt;/p&gt;
 &lt;p&gt;xv6适用于多核x86系统，主要使用ANSI C（以及少量AT&amp;amp;T风格的汇编语言）编码。我在阅读源码过程中最初的障碍来源于对硬件和汇编的无知，所以在此先补一篇相关基础知识的笔记。&lt;/p&gt;
 &lt;h2&gt;寄存器&lt;/h2&gt;
 &lt;p&gt;CPU包含若干组寄存器，xv6涉及到的主要有：&lt;/p&gt;
