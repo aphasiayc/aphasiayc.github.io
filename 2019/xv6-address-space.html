@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+            <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <title>xv6: address space</title>
+
+        <!-- Bootstrap Core CSS -->
+        <link href="/theme/css/bootstrap.min.css" rel="stylesheet">
+
+        <!-- Custom CSS -->
+        <link href="/theme/css/clean-blog.min.css" rel="stylesheet">
+
+        <!-- Code highlight color scheme -->
+            <link href="/theme/css/code_blocks/darkly.css" rel="stylesheet">
+
+
+        <!-- Custom Fonts -->
+        <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+        <link href='https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+
+
+        <meta name="description" content="所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和ker...">
+
+        <meta name="author" content="aphasiayc">
+
+
+	                <meta property="og:locale" content="">
+		<meta property="og:site_name" content="Notes">
+
+	<meta property="og:type" content="article">
+            <meta property="article:author" content="/author/aphasiayc.html">
+	<meta property="og:url" content="/2019/xv6-address-space.html">
+	<meta property="og:title" content="xv6: address space">
+	<meta property="article:published_time" content="2019-05-27 00:58:32.298788+08:00">
+            <meta property="og:description" content="所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和ker...">
+
+            <meta property="og:image" content="/theme/images/post-bg.jpg">
+</head>
+
+<body class="article-xv6-address-space">
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+        <div class="container-fluid">
+            <!-- Brand and toggle get grouped for better mobile display -->
+            <div class="navbar-header page-scroll">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">Notes</a>
+            </div>
+
+            <!-- Collect the nav links, forms, and other content for toggling -->
+            <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                <ul class="nav navbar-nav navbar-right">
+
+                </ul>
+            </div>
+            <!-- /.navbar-collapse -->
+        </div>
+        <!-- /.container -->
+    </nav>
+
+    <!-- Page Header -->
+        <header class="intro-header" style="background-image: url('/theme/images/post-bg.jpg')">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <div class="post-heading">
+                        <h1>xv6: address space</h1>
+                        <span class="meta">Posted by
+                                <a href="/author/aphasiayc.html">aphasiayc</a>
+                             on Mon 27 May 2019
+                        </span>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+    <!-- Post Content -->
+    <article>
+        <p>所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和kernel两个部分来实现权限的分级管理。</p>
+<h2>机制</h2>
+<h3>多级分页</h3>
+<p>使用分页机制管理内存时，系统需要借助分页表来维护从线性地址到物理地址的映射关系。分页表可能会很长，例如x86中内存地址长度为2<sup>32</sup>位。如果设定一页的长度为2<sup>12</sup>位（4 kB），那就总共需要2<sup>20</sup>（1,048,576）个page table entry(PTE)。假设一个PTE占用4 bytes，那么一张完整的分页表将占用4 MB内存。4 MB也许不能算是很大的开销，但为了实现内存隔离，各个进程维护各自独立的分页表，于是系统也许需要同时保存成百上千张分页表。如果没有适当的优化，分页表本身将占用若干GB的空间。</p>
+<p>为解决内存开销过大的问题，一种方法是使用更粗的分页（相应更短的分页表），但这可能导致分页内部的内存浪费，以及虚拟内存换入/换出时的困难。另一种方法是引入多级分页，xv6使用的就是二级分页的方法。</p>
+<p>具体来说，xv6将线性地址分为三段，其中前10个比特位称为为page directory index（<code>PDX</code>），第11至20个比特位称为page table Index（<code>PTX</code>），最后12位为offset：</p>
+<div class="highlight"><pre><span></span><span class="c1">// mmu.h</span>
+<span class="c1">// A virtual address &#39;va&#39; has a three-part structure as follows:</span>
+<span class="c1">//</span>
+<span class="c1">// +--------10------+-------10-------+---------12----------+</span>
+<span class="c1">// | Page Directory |   Page Table   | Offset within Page  |</span>
+<span class="c1">// |      Index     |      Index     |                     |</span>
+<span class="c1">// +----------------+----------------+---------------------+</span>
+<span class="c1">//  \--- PDX(va) --/ \--- PTX(va) --/</span>
+
+<span class="c1">// page directory index</span>
+<span class="cp">#define PDX(va)         (((uint)(va) &gt;&gt; PDXSHIFT) &amp; 0x3FF)</span>
+
+<span class="c1">// page table index</span>
+<span class="cp">#define PTX(va)         (((uint)(va) &gt;&gt; PTXSHIFT) &amp; 0x3FF)</span>
+</pre></div>
+
+
+<p>相对应的，系统首先维护一个初级分页表（page diretory table，PDT），包含2<sup>10</sup>个PTE，占用一个4 kB的内存页，其中每一个PTE指向一个二级分页表。每个二级分页表也各自包含2<sup>10</sup>个PTE，占用一个4 kB内存页。地址的转译过程是，首先获取线性地址中的<code>PDX</code>部分，在PDT中查找相应的PTE，如果命中，则读取对应的二级分页表。然后在二级分页表中根据线性地址的<code>PTX</code>部分查找对应的PPN，如果命中，则用PPN加上offset，就获得最终的物理地址。</p>
+<p>这样一个完整的分页表最多可以管理4 GB的地址空间。二级分页节省内存的关键是，当一个二级分页表所对应的线性地址完全没有被占用时，这个分页表本身也不需要存在，只需要将PDT中对应行的<code>PTE_P</code>标志位置0即可。通常情况下分页表相对稀疏，因而大量二级分页表都不需要额外占用空间，由此大大降低了内存开销。</p>
+<p>作为一个总结，xv6系统中地址转译的完整过程（包括segment和paging）如下图所示：</p>
+<p><img alt="translation" src="/2019/images/address.001.png"></p>
+<h3>权限控制</h3>
+<p>x86的segment机制中就包含权限控制，segment selector和segment descriptor中都包含用以标示权限的标志位privilege level(PL)。PL通常占用2个比特位，原则上可以标识4种不同的权限等级。xv6只使用了其中的两个等级：0（kernel mode）和3（user mode）。一些关键的操作（例如异常处理、硬件I/O、system call）只能在kernel mode中进行。</p>
+<p>但事实上xv6在内存管理上几乎不依赖segment机制，SDT中设定的各个全局segment descriptor（code、stack、data等）都覆盖了[0, 4 GB）的线性地址空间。内存权限保护是通过分页表PTE中的特殊标志位<code>PTE_U</code>来实现。只用当<code>PTE_U</code>设置为1时，对应的地址空间才允许在user mode下访问。</p>
+<h3>分配模型</h3>
+<p>xv6中每一个进程各自维护一张分页表，各个进程拥有4 GB的独立地址空间，进程间相互隔离。</p>
+<p>用户进程通常运行在user mode下，当程序需要进行I/O、异常处理等操作时，需要通过中断机制进入kernel mode，转而执行kernel预设的一段指令（interrupt handlers）。于此相应，xv6中每个进程的地址空间都包含user（0 ~ 2 GB）和kernel（2 ～ 4 GB）两部分，地址空间分配如下图所示。</p>
+<p><img alt="model" src="/2019/images/address.002.png"></p>
+<p>与两种权限等级相对应，每个进程都拥有两个栈：user stack和kernel stack。</p>
+<h2>实现</h2>
+<h3>分页管理</h3>
+<p>结构体<code>kmem</code>负责管理分页。<code>kmem</code>维护了一个包含所有可用分页的链表<code>freelist</code>：</p>
+<div class="highlight"><pre><span></span><span class="c1">// kalloc.c</span>
+<span class="k">struct</span> <span class="n">run</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">run</span> <span class="o">*</span><span class="n">next</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="k">struct</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">spinlock</span> <span class="n">lock</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">use_lock</span><span class="p">;</span>
+  <span class="k">struct</span> <span class="n">run</span> <span class="o">*</span><span class="n">freelist</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">kmem</span><span class="p">;</span>
+</pre></div>
+
+
+<ul>
+<li>allocate a page</li>
+</ul>
+<p><code>kalloc</code>取出<code>freelist</code>中的第一个可用分页外部程序使用，同时令<code>freelist</code>指向下一个可用分页。</p>
+<div class="highlight"><pre><span></span><span class="kt">char</span><span class="o">*</span> <span class="nf">kalloc</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">run</span> <span class="o">*</span><span class="n">r</span><span class="p">;</span>
+
+  <span class="k">if</span><span class="p">(</span><span class="n">kmem</span><span class="p">.</span><span class="n">use_lock</span><span class="p">)</span>
+    <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">kmem</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+  <span class="n">r</span> <span class="o">=</span> <span class="n">kmem</span><span class="p">.</span><span class="n">freelist</span><span class="p">;</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+    <span class="n">kmem</span><span class="p">.</span><span class="n">freelist</span> <span class="o">=</span> <span class="n">r</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">;</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">kmem</span><span class="p">.</span><span class="n">use_lock</span><span class="p">)</span>
+    <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">kmem</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">return</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">r</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<ul>
+<li>free a page</li>
+</ul>
+<p><code>kfree</code>首先填充需要释放的分页（避免下一个使用此页的进程可以读到上一个进程写入的内容），然后将它插入到<code>freelist</code>头部的位置。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">kfree</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">v</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">run</span> <span class="o">*</span><span class="n">r</span><span class="p">;</span>
+
+  <span class="c1">// Check if v is legitimate,</span>
+  <span class="k">if</span><span class="p">((</span><span class="n">uint</span><span class="p">)</span><span class="n">v</span> <span class="o">%</span> <span class="n">PGSIZE</span> <span class="o">||</span>    <span class="c1">// v必须为合法的页起始位置，即PGSIZE的整数倍</span>
+      <span class="n">v</span> <span class="o">&lt;</span> <span class="n">end</span> <span class="o">||</span>            <span class="c1">// v不得低于end：end是kernel本身占用内存的最高位置，定义在kernel.ld中</span>
+      <span class="n">V2P</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">PHYSTOP</span><span class="p">)</span>    <span class="c1">// v对应的物理地址不得高于PHYSTOP</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;kfree&quot;</span><span class="p">);</span>
+
+  <span class="c1">// Fill with junk to catch dangling refs.</span>
+  <span class="n">memset</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">PGSIZE</span><span class="p">);</span>     <span class="c1">// PGSIZE = 4 kB</span>
+
+  <span class="k">if</span><span class="p">(</span><span class="n">kmem</span><span class="p">.</span><span class="n">use_lock</span><span class="p">)</span>
+    <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">kmem</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+  <span class="n">r</span> <span class="o">=</span> <span class="p">(</span><span class="k">struct</span> <span class="n">run</span><span class="o">*</span><span class="p">)</span><span class="n">v</span><span class="p">;</span>
+  <span class="n">r</span><span class="o">-&gt;</span><span class="n">next</span> <span class="o">=</span> <span class="n">kmem</span><span class="p">.</span><span class="n">freelist</span><span class="p">;</span>
+  <span class="n">kmem</span><span class="p">.</span><span class="n">freelist</span> <span class="o">=</span> <span class="n">r</span><span class="p">;</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">kmem</span><span class="p">.</span><span class="n">use_lock</span><span class="p">)</span>
+    <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">kmem</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<ul>
+<li>free a range</li>
+</ul>
+<p><code>freerange</code>将<code>vstart</code>至<code>vend</code>之间的虚拟地址段分成若干大小为<code>PGSIZE</code>的页，插入<code>freelist</code>中。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">freerange</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">vstart</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="n">vend</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">char</span> <span class="o">*</span><span class="n">p</span><span class="p">;</span>
+  <span class="n">p</span> <span class="o">=</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">PGROUNDUP</span><span class="p">((</span><span class="n">uint</span><span class="p">)</span><span class="n">vstart</span><span class="p">);</span>
+  <span class="k">for</span><span class="p">(;</span> <span class="n">p</span> <span class="o">+</span> <span class="n">PGSIZE</span> <span class="o">&lt;=</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">vend</span><span class="p">;</span> <span class="n">p</span> <span class="o">+=</span> <span class="n">PGSIZE</span><span class="p">)</span>  <span class="c1">// PGSIZE = 4 kB</span>
+    <span class="n">kfree</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>xv6在main函数中通过<code>freerange</code>将kernel的<code>end</code>到<code>P2V(PHYSTOP)</code>之间的VA区间切分成大小为4 kB的小段，依次插入到<code>freelist</code>中。<code>PHYSTOP</code>的值为0xe000000，xv6实际可以操作的地址空间小于224 MB。</p>
+<p><code>kmem</code>直接操作的VA，实际上管理的是PA。</p>
+<h3>设置分页表</h3>
+<p><code>mappages</code>的作用是在分页表<code>pgdir</code>中设置虚拟地址到物理地址的对应关系。它将从<code>va</code>开始的一段长度为<code>size</code>的连续虚拟地址空间映射到与之对应的从<code>pa</code>开始的一段物理地址空间。</p>
+<p><code>mappages</code>通过<code>walkpgdir</code>来查找虚拟地址<code>va</code>对应的PTE。<code>walkpgdir</code>首先根据<code>PDX(va)</code>查找<code>va</code>在初级分页表<code>pgdir</code>中对应的PDE，读取对应二级分页表的物理地址。如果对应的二级分页表不存在，则通过<code>kalloc</code>申请一个新的内存页。然后根据<code>PTX(va)</code>查找<code>va</code>在二级分页表中对应的PTE。</p>
+<p><code>walkpgdir</code>返回与<code>va</code>对应PTE，然后<code>mappages</code>将<code>pa</code>写入到PTE的PPN中，并设置<code>PTE_P</code>标记位，标示这段地址已经被占用。</p>
+<div class="highlight"><pre><span></span><span class="c1">// vm.c</span>
+<span class="k">static</span> <span class="n">pte_t</span> <span class="o">*</span><span class="nf">walkpgdir</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="k">const</span> <span class="kt">void</span> <span class="o">*</span><span class="n">va</span><span class="p">,</span> <span class="kt">int</span> <span class="n">alloc</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">pde_t</span> <span class="o">*</span><span class="n">pde</span><span class="p">;</span>
+  <span class="n">pte_t</span> <span class="o">*</span><span class="n">pgtab</span><span class="p">;</span>
+
+  <span class="n">pde</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">pgdir</span><span class="p">[</span><span class="n">PDX</span><span class="p">(</span><span class="n">va</span><span class="p">)];</span>
+  <span class="k">if</span><span class="p">(</span><span class="o">*</span><span class="n">pde</span> <span class="o">&amp;</span> <span class="n">PTE_P</span><span class="p">){</span>              <span class="c1">// 判断二级分页表pgtab是否存在</span>
+    <span class="n">pgtab</span> <span class="o">=</span> <span class="p">(</span><span class="n">pte_t</span><span class="o">*</span><span class="p">)</span><span class="n">P2V</span><span class="p">(</span><span class="n">PTE_ADDR</span><span class="p">(</span><span class="o">*</span><span class="n">pde</span><span class="p">));</span>
+  <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>                       
+    <span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="n">alloc</span> <span class="o">||</span> <span class="p">(</span><span class="n">pgtab</span> <span class="o">=</span> <span class="p">(</span><span class="n">pte_t</span><span class="o">*</span><span class="p">)</span><span class="n">kalloc</span><span class="p">())</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">pgtab</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">PGSIZE</span><span class="p">);</span>    <span class="c1">// 置0，保证pgtab中所有的PTE_P标志位为0</span>
+    <span class="o">*</span><span class="n">pde</span> <span class="o">=</span> <span class="n">V2P</span><span class="p">(</span><span class="n">pgtab</span><span class="p">)</span> <span class="o">|</span> <span class="n">PTE_P</span> <span class="o">|</span> <span class="n">PTE_W</span> <span class="o">|</span> <span class="n">PTE_U</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="o">&amp;</span><span class="n">pgtab</span><span class="p">[</span><span class="n">PTX</span><span class="p">(</span><span class="n">va</span><span class="p">)];</span>
+<span class="p">}</span>
+
+<span class="k">static</span> <span class="kt">int</span> <span class="nf">mappages</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="n">va</span><span class="p">,</span> <span class="n">uint</span> <span class="n">size</span><span class="p">,</span> <span class="n">uint</span> <span class="n">pa</span><span class="p">,</span> <span class="kt">int</span> <span class="n">perm</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">char</span> <span class="o">*</span><span class="n">a</span><span class="p">,</span> <span class="o">*</span><span class="n">last</span><span class="p">;</span>
+  <span class="n">pte_t</span> <span class="o">*</span><span class="n">pte</span><span class="p">;</span>
+
+  <span class="n">a</span> <span class="o">=</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">PGROUNDDOWN</span><span class="p">((</span><span class="n">uint</span><span class="p">)</span><span class="n">va</span><span class="p">);</span>
+  <span class="n">last</span> <span class="o">=</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">PGROUNDDOWN</span><span class="p">(((</span><span class="n">uint</span><span class="p">)</span><span class="n">va</span><span class="p">)</span> <span class="o">+</span> <span class="n">size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">);</span>
+  <span class="k">for</span><span class="p">(;;){</span>
+    <span class="k">if</span><span class="p">((</span><span class="n">pte</span> <span class="o">=</span> <span class="n">walkpgdir</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="k">if</span><span class="p">(</span><span class="o">*</span><span class="n">pte</span> <span class="o">&amp;</span> <span class="n">PTE_P</span><span class="p">)</span>
+      <span class="n">panic</span><span class="p">(</span><span class="s">&quot;remap&quot;</span><span class="p">);</span>
+    <span class="o">*</span><span class="n">pte</span> <span class="o">=</span> <span class="n">pa</span> <span class="o">|</span> <span class="n">perm</span> <span class="o">|</span> <span class="n">PTE_P</span><span class="p">;</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">a</span> <span class="o">==</span> <span class="n">last</span><span class="p">)</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="n">a</span> <span class="o">+=</span> <span class="n">PGSIZE</span><span class="p">;</span>
+    <span class="n">pa</span> <span class="o">+=</span> <span class="n">PGSIZE</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<h3>kernel地址空间</h3>
+<p>xv6对kernel地址空间的分配定义在<code>kmap</code>中：</p>
+<div class="highlight"><pre><span></span><span class="k">static</span> <span class="k">struct</span> <span class="n">kmap</span> <span class="p">{</span>
+  <span class="kt">void</span> <span class="o">*</span><span class="n">virt</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">phys_start</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">phys_end</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">perm</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">kmap</span><span class="p">[]</span> <span class="o">=</span> <span class="p">{</span>
+ <span class="p">{</span> <span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">KERNBASE</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span>             <span class="n">EXTMEM</span><span class="p">,</span>    <span class="n">PTE_W</span><span class="p">},</span> <span class="c1">// I/O space, KERNBASE = 0x80000000(2 GB)</span>
+ <span class="p">{</span> <span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">KERNLINK</span><span class="p">,</span> <span class="n">V2P</span><span class="p">(</span><span class="n">KERNLINK</span><span class="p">),</span> <span class="n">V2P</span><span class="p">(</span><span class="n">data</span><span class="p">),</span> <span class="mi">0</span><span class="p">},</span>     <span class="c1">// kern text+rodata, KERNLINK = 0x80100000(2 GB + 1 MB)</span>
+ <span class="p">{</span> <span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">data</span><span class="p">,</span>     <span class="n">V2P</span><span class="p">(</span><span class="n">data</span><span class="p">),</span>     <span class="n">PHYSTOP</span><span class="p">,</span>   <span class="n">PTE_W</span><span class="p">},</span> <span class="c1">// kern data+memory, PHYSTOP = 0xe000000(224 MB)</span>
+ <span class="p">{</span> <span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">DEVSPACE</span><span class="p">,</span> <span class="n">DEVSPACE</span><span class="p">,</span>      <span class="mi">0</span><span class="p">,</span>         <span class="n">PTE_W</span><span class="p">},</span> <span class="c1">// more devices, DEVSPACE = 0xfe000000</span>
+<span class="p">};</span>
+</pre></div>
+
+
+<p>其中包括4段物理内存：</p>
+<ul>
+<li>0 ~ <code>EXTMEM</code>（0x100000， 1 MB）：<code>EXTMEM</code>是kernel在物理内存中的起始位置，<code>EXTMEM</code>之前的地址被boot等占用。</li>
+<li><code>EXTMEM</code> ~ <code>P2V(data)</code>：<code>data</code>在链接脚本(kernel.ld)中定义，是kernel只读部分终止的位置。kernel只读部分包括了<code>text</code>（指令）和<code>rodata</code>（常量数据）等</li>
+<li><code>P2V(data)</code> ~ <code>PHYSTOP</code>： 可读可写区域，包括了kernel可写的数据以及未分配的空间。kernel的结束位置<code>end</code>就处于此区间中。</li>
+<li>最后是一段硬件预留的空间</li>
+</ul>
+<p><code>kmap</code>将它们映射到kernel部分的虚拟地址空间中（加上2 GB的<code>KERNBASE</code>）。</p>
+<p><code>setupkvm</code>函数创建kernel地址空间：</p>
+<ul>
+<li>首先通过<code>kalloc</code>申请一页内存（4 kB）内存作为PDT</li>
+<li>将这段内存的内容置零，以保证所有PTE的<code>PTE_P</code>标志位为零</li>
+<li>遍历<code>kmap</code>，通过<code>mappages</code>将<code>kmap</code>中定义的各段虚拟地址到物理地址的映射关系以及权限写入到相应PTE中</li>
+</ul>
+<div class="highlight"><pre><span></span><span class="n">pde_t</span><span class="o">*</span> <span class="nf">setupkvm</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">;</span>
+  <span class="k">struct</span> <span class="n">kmap</span> <span class="o">*</span><span class="n">k</span><span class="p">;</span>
+
+  <span class="k">if</span><span class="p">((</span><span class="n">pgdir</span> <span class="o">=</span> <span class="p">(</span><span class="n">pde_t</span><span class="o">*</span><span class="p">)</span><span class="n">kalloc</span><span class="p">())</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>  <span class="c1">// 申请4 kB空间作为PDT</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="n">memset</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">PGSIZE</span><span class="p">);</span>            <span class="c1">// 置0，初始化PDT</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">k</span> <span class="o">=</span> <span class="n">kmap</span><span class="p">;</span> <span class="n">k</span> <span class="o">&lt;</span> <span class="o">&amp;</span><span class="n">kmap</span><span class="p">[</span><span class="n">NELEM</span><span class="p">(</span><span class="n">kmap</span><span class="p">)];</span> <span class="n">k</span><span class="o">++</span><span class="p">)</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">mappages</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">k</span><span class="o">-&gt;</span><span class="n">virt</span><span class="p">,</span> <span class="n">k</span><span class="o">-&gt;</span><span class="n">phys_end</span> <span class="o">-</span> <span class="n">k</span><span class="o">-&gt;</span><span class="n">phys_start</span><span class="p">,</span>
+                <span class="p">(</span><span class="n">uint</span><span class="p">)</span><span class="n">k</span><span class="o">-&gt;</span><span class="n">phys_start</span><span class="p">,</span> <span class="n">k</span><span class="o">-&gt;</span><span class="n">perm</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="k">return</span> <span class="n">pgdir</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>setupkvm</code>返回一个PDT的地址<code>pgdir</code>。其中kernel部分（2 GB以上）的地址空间已经设置完毕，user部分（2 GB以下）空白。</p>
+<h3>user地址空间</h3>
+<p><code>allocuvm</code>为user部分分配内存。当需要更多内存（<code>newsz</code>&gt;<code>oldsz</code>）时，<code>allocuvm</code>通过<code>kalloc</code>申请新的分页<code>mem</code>，重置分页的内容，而后通过<code>mappages</code>将user地址<code>a</code>到<code>mem</code>之间的映射关系写入到<code>pgdir</code>中。</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">allocuvm</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">uint</span> <span class="n">oldsz</span><span class="p">,</span> <span class="n">uint</span> <span class="n">newsz</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">char</span> <span class="o">*</span><span class="n">mem</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">a</span><span class="p">;</span>
+  <span class="p">...</span>
+  <span class="n">a</span> <span class="o">=</span> <span class="n">PGROUNDUP</span><span class="p">(</span><span class="n">oldsz</span><span class="p">);</span>
+  <span class="k">for</span><span class="p">(;</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">newsz</span><span class="p">;</span> <span class="n">a</span> <span class="o">+=</span> <span class="n">PGSIZE</span><span class="p">){</span>
+    <span class="n">mem</span> <span class="o">=</span> <span class="n">kalloc</span><span class="p">();</span>          <span class="c1">// 申请新的分页</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">mem</span> <span class="o">==</span> <span class="mi">0</span><span class="p">){</span>
+      <span class="n">cprintf</span><span class="p">(</span><span class="s">&quot;allocuvm out of memory</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+      <span class="n">deallocuvm</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">newsz</span><span class="p">,</span> <span class="n">oldsz</span><span class="p">);</span>
+      <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">mem</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">PGSIZE</span><span class="p">);</span>  <span class="c1">// 重置分页内容</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">mappages</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">a</span><span class="p">,</span> <span class="n">PGSIZE</span><span class="p">,</span> <span class="n">V2P</span><span class="p">(</span><span class="n">mem</span><span class="p">),</span> <span class="n">PTE_W</span><span class="o">|</span><span class="n">PTE_U</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">){</span>  <span class="c1">// 设置PTE</span>
+      <span class="n">cprintf</span><span class="p">(</span><span class="s">&quot;allocuvm out of memory (2)</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+      <span class="n">deallocuvm</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">newsz</span><span class="p">,</span> <span class="n">oldsz</span><span class="p">);</span>
+      <span class="n">kfree</span><span class="p">(</span><span class="n">mem</span><span class="p">);</span>
+      <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="n">newsz</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>在申请足够的地址空间之后，<code>loaduvm</code>在<code>pgdir</code>中找到相应的PTE，读取<code>PA</code>，并通过<code>readi</code>将硬盘上的可执行文件（elf）载入内存。</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">loaduvm</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">,</span> <span class="k">struct</span> <span class="n">inode</span> <span class="o">*</span><span class="n">ip</span><span class="p">,</span> <span class="n">uint</span> <span class="n">offset</span><span class="p">,</span> <span class="n">uint</span> <span class="n">sz</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">uint</span> <span class="n">i</span><span class="p">,</span> <span class="n">pa</span><span class="p">,</span> <span class="n">n</span><span class="p">;</span>
+  <span class="n">pte_t</span> <span class="o">*</span><span class="n">pte</span><span class="p">;</span>
+  <span class="p">...</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">sz</span><span class="p">;</span> <span class="n">i</span> <span class="o">+=</span> <span class="n">PGSIZE</span><span class="p">){</span>
+    <span class="k">if</span><span class="p">((</span><span class="n">pte</span> <span class="o">=</span> <span class="n">walkpgdir</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">addr</span><span class="o">+</span><span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="n">panic</span><span class="p">(</span><span class="s">&quot;loaduvm: address should exist&quot;</span><span class="p">);</span>
+    <span class="n">pa</span> <span class="o">=</span> <span class="n">PTE_ADDR</span><span class="p">(</span><span class="o">*</span><span class="n">pte</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">sz</span> <span class="o">-</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">PGSIZE</span><span class="p">)</span>
+      <span class="n">n</span> <span class="o">=</span> <span class="n">sz</span> <span class="o">-</span> <span class="n">i</span><span class="p">;</span>
+    <span class="k">else</span>
+      <span class="n">n</span> <span class="o">=</span> <span class="n">PGSIZE</span><span class="p">;</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">readi</span><span class="p">(</span><span class="n">ip</span><span class="p">,</span> <span class="n">P2V</span><span class="p">(</span><span class="n">pa</span><span class="p">),</span> <span class="n">offset</span><span class="o">+</span><span class="n">i</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="o">!=</span> <span class="n">n</span><span class="p">)</span>
+      <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<h3>一个栗子：复制分页表</h3>
+<p><code>copyuvm</code>在创建进程时用到。unix中新进程从父进程<code>fork</code>而来。在<code>fork</code>完成的时候，子进程和父进程使用相同的地址空间，<code>copyuvm</code>的工作就是将父进程的分页表复制到子进程中：</p>
+<ul>
+<li>首先<code>setupkvm</code>获得一个新的分页表<code>d</code>。<code>setupkvm</code>的流程是通过<code>kalloc</code>申请内存页作为PDT，并设置其中与kernel相关的部分</li>
+<li>通过<code>walkpgdir</code>遍历父进程的分页表<code>pgdir</code>中属于的user部分的各个PDE，获得父进程中各个二级分页表的物理地址<code>pa</code></li>
+<li>通过<code>kalloc</code>为子进程的各个二级分页表申请空间<code>mem</code>。通过<code>memmove</code>将<code>P2V(pa)</code>的内容复制到<code>mem</code>中</li>
+<li>最后通过<code>mappages</code>将新的二级分页表的物理地址<code>V2P(mem)</code>写入到<code>d</code>中对应的PDE里。</li>
+</ul>
+<div class="highlight"><pre><span></span><span class="n">pde_t</span><span class="o">*</span> <span class="nf">copyuvm</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">uint</span> <span class="n">sz</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">pde_t</span> <span class="o">*</span><span class="n">d</span><span class="p">;</span>
+  <span class="n">pte_t</span> <span class="o">*</span><span class="n">pte</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">pa</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">flags</span><span class="p">;</span>
+  <span class="kt">char</span> <span class="o">*</span><span class="n">mem</span><span class="p">;</span>
+
+  <span class="k">if</span><span class="p">((</span><span class="n">d</span> <span class="o">=</span> <span class="n">setupkvm</span><span class="p">())</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">sz</span><span class="p">;</span> <span class="n">i</span> <span class="o">+=</span> <span class="n">PGSIZE</span><span class="p">){</span>
+    <span class="k">if</span><span class="p">((</span><span class="n">pte</span> <span class="o">=</span> <span class="n">walkpgdir</span><span class="p">(</span><span class="n">pgdir</span><span class="p">,</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span> <span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="n">panic</span><span class="p">(</span><span class="s">&quot;copyuvm: pte should exist&quot;</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="p">(</span><span class="o">*</span><span class="n">pte</span> <span class="o">&amp;</span> <span class="n">PTE_P</span><span class="p">))</span>
+      <span class="n">panic</span><span class="p">(</span><span class="s">&quot;copyuvm: page not present&quot;</span><span class="p">);</span>
+    <span class="n">pa</span> <span class="o">=</span> <span class="n">PTE_ADDR</span><span class="p">(</span><span class="o">*</span><span class="n">pte</span><span class="p">);</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="n">PTE_FLAGS</span><span class="p">(</span><span class="o">*</span><span class="n">pte</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">((</span><span class="n">mem</span> <span class="o">=</span> <span class="n">kalloc</span><span class="p">())</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="k">goto</span> <span class="n">bad</span><span class="p">;</span>
+    <span class="n">memmove</span><span class="p">(</span><span class="n">mem</span><span class="p">,</span> <span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">P2V</span><span class="p">(</span><span class="n">pa</span><span class="p">),</span> <span class="n">PGSIZE</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">mappages</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="p">(</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">i</span><span class="p">,</span> <span class="n">PGSIZE</span><span class="p">,</span> <span class="n">V2P</span><span class="p">(</span><span class="n">mem</span><span class="p">),</span> <span class="n">flags</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="k">goto</span> <span class="n">bad</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="n">d</span><span class="p">;</span>
+
+<span class="nl">bad</span><span class="p">:</span>
+  <span class="n">freevm</span><span class="p">(</span><span class="n">d</span><span class="p">);</span>
+  <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>值得注意的是，xv6将kernel的指令和数据加载到了每一个进程的地址空间中。这样当应用程序需要使用某些kernel的功能时，就不需要额外执行一次切换分页表的操作，从而节省了CPU时间。尽管如此，应用程序并不能直接调用kernel中的函数。这是因为应用程序通常运行在user mode下，而kernel中的函数必须在权限等级更高的kernel mode中才能执行。此时应用程序需要借助“中断”机制来提升权限。</p>
+<hr>
+<h4>参考</h4>
+<ol>
+<li><a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture05-address-translation/lecture05-address-translation.pdf">UCI course on address translation</a></li>
+<li><a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf">xv6 Book</a></li>
+</ol>
+    </article>
+
+
+    <hr>
+
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <ul class="list-inline text-center">
+                            <li>
+                                <a href="https://github.com/aphasiayc">
+                                    <span class="fa-stack fa-lg">
+                                        <i class="fa fa-circle fa-stack-2x"></i>
+                                        <i class="fa fa-github fa-stack-1x fa-inverse"></i>
+                                    </span>
+                                </a>
+                            </li>
+                    </ul>
+<p class="copyright text-muted">
+    Blog powered by <a href="http://getpelican.com">Pelican</a>,
+    which takes great advantage of <a href="http://python.org">Python</a>. <br />        &copy;  aphasiayc
+</p>                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="/theme/js/jquery.min.js"></script>
+
+    <!-- Bootstrap Core JavaScript -->
+    <script src="/theme/js/bootstrap.min.js"></script>
+
+        <!-- Custom Theme JavaScript -->
+        <script src="/theme/js/clean-blog.min.js"></script>
+
+</body>
+
+</html>

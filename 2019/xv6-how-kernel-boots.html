@@ -45,7 +45,7 @@
             <meta property="article:author" content="/author/aphasiayc.html">
 	<meta property="og:url" content="/2019/xv6-how-kernel-boots.html">
 	<meta property="og:title" content="xv6: how kernel boots">
-	<meta property="article:published_time" content="2019-05-26 19:34:22.365817+08:00">
+	<meta property="article:published_time" content="2019-05-26 19:53:48.211135+08:00">
             <meta property="og:description" content="通常当我们运行某个程序的时候，其实是kernel替我们在运行它，具体的工作包括启动、维护它的状态，以及在结束后清理现场等。这当中的一个问题是，kernel本身作为一个（特殊的）程序是如何启动的？ 事实上kernel启动的过程包括了若干个阶段： 首先由BIOS载入boot...">
 
             <meta property="og:image" content="/theme/images/post-bg.jpg">
@@ -109,7 +109,7 @@
 <li>boot loader启动segment机制实现地址转译，设置内存栈，然后载入并运行elf格式的kernel程序</li>
 <li>kernel实现内存分页，启动中断、多核并行等机制，并最终创建系统中的第一个进程来运行shell，为kernel和外界的交互提供入口。</li>
 </ul>
-<p>这是一个层层递进的过程，每一个阶段的工作都是为下一个阶段准备了必要的条件。这当中也将涉及到若干硬件相关的细节。</p>
+<p>这是一个层层递进的过程，每一个阶段的工作都为下一个阶段准备了必要的条件。这当中也将涉及到若干硬件相关的细节。</p>
 <h2>BIOS</h2>
 <p>x86启动时，系统的一个CPU成为Bootstrap Processor(BSP)，运行系统初始化指令。其余CPU都成为Application Processor，等待BSP的信号。</p>
 <p>BSP首先运行BIOS（Basic I/O System）中的指令。BIOS的工作是初始化硬件、从硬盘boot sector中读取boot loader（负责将kernel载入内存的程序）。xv6的boot loader是一段很短的指令（&lt;512 bytes），存储在第一个disk sector中。BIOS将boot loader载入到起始地址为<code>0x7c00</code>的内存中。</p>
@@ -239,7 +239,7 @@
 <li>根据index去分页表中查找相应PTE，如果其中<code>PTE_P</code>为0，则这个虚拟地址在物理地址中没有对应</li>
 <li>如果<code>PTP_P</code>为1，则读取PTE中的PPN，PPN+offset即获得物理地址</li>
 </ol>
-<p>通常用寄存器%cr0中的标志位<code>$CR0_PG</code>来标志分页是否启用， %cr4保存分页的大小，%cr3保存分页表的其实物理地址。</p>
+<p>通常用寄存器%cr0中的标志位<code>$CR0_PG</code>来标志分页是否启用， %cr4保存分页的大小，%cr3保存分页表的起始物理地址。</p>
 <p><img alt="page table" src="/2019/images/boot.005.png"></p>
 <h3>第一个分页表</h3>
 <p>kernel代码中手工设置了xv6运行过程中的第一个分页表<code>entrypgdir</code>：</p>
