@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+            <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <title>xv6: interrupts</title>
+
+        <!-- Bootstrap Core CSS -->
+        <link href="/theme/css/bootstrap.min.css" rel="stylesheet">
+
+        <!-- Custom CSS -->
+        <link href="/theme/css/clean-blog.min.css" rel="stylesheet">
+
+        <!-- Code highlight color scheme -->
+            <link href="/theme/css/code_blocks/darkly.css" rel="stylesheet">
+
+
+        <!-- Custom Fonts -->
+        <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+        <link href='https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+
+
+        <meta name="description" content="顾名思义，中断是处理器暂停当前顺序的控制流，转而执行另外指令的操作。触发中断通常有两种方式：CPU在执行指令过程中发生异常（同步方式），或者接收到了外部硬件发来的信号（异步方式）。按照Intel的分类，同步中断称为exception，而异步中断称为interrupt。通常处...">
+
+        <meta name="author" content="aphasiayc">
+
+
+	                <meta property="og:locale" content="">
+		<meta property="og:site_name" content="Notes">
+
+	<meta property="og:type" content="article">
+            <meta property="article:author" content="/author/aphasiayc.html">
+	<meta property="og:url" content="/2019/xv6-interrupts.html">
+	<meta property="og:title" content="xv6: interrupts">
+	<meta property="article:published_time" content="2019-05-28 10:47:00+08:00">
+            <meta property="og:description" content="顾名思义，中断是处理器暂停当前顺序的控制流，转而执行另外指令的操作。触发中断通常有两种方式：CPU在执行指令过程中发生异常（同步方式），或者接收到了外部硬件发来的信号（异步方式）。按照Intel的分类，同步中断称为exception，而异步中断称为interrupt。通常处...">
+
+            <meta property="og:image" content="/theme/images/post-bg.jpg">
+</head>
+
+<body class="article-xv6-interrupts">
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+        <div class="container-fluid">
+            <!-- Brand and toggle get grouped for better mobile display -->
+            <div class="navbar-header page-scroll">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">Notes</a>
+            </div>
+
+            <!-- Collect the nav links, forms, and other content for toggling -->
+            <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                <ul class="nav navbar-nav navbar-right">
+
+                </ul>
+            </div>
+            <!-- /.navbar-collapse -->
+        </div>
+        <!-- /.container -->
+    </nav>
+
+    <!-- Page Header -->
+        <header class="intro-header" style="background-image: url('/theme/images/post-bg.jpg')">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <div class="post-heading">
+                        <h1>xv6: interrupts</h1>
+                        <span class="meta">Posted by
+                                <a href="/author/aphasiayc.html">aphasiayc</a>
+                             on Tue 28 May 2019
+                        </span>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+    <!-- Post Content -->
+    <article>
+        <p>顾名思义，中断是处理器暂停当前顺序的控制流，转而执行另外指令的操作。触发中断通常有两种方式：CPU在执行指令过程中发生异常（同步方式），或者接收到了外部硬件发来的信号（异步方式）。按照Intel的分类，同步中断称为exception，而异步中断称为interrupt。通常处理器接受某个中断信号之后，会根据它的具体类型，跳转执行某个特定的interrupt/exception handler。</p>
+<p>中断是CPU和外部硬件设备之间，以及多核系统中各个CPU之间通信的一种重要的方式。在xv6中，它为kernel和user程序之间的交互提供了底层机制。</p>
+<h2>中断的分类</h2>
+<p>中断包括了很多类型，表述上又涉及到许多含义有重叠的名词（比如interrupt、trap，以及exception、fault之类）。所以将中断作个分类考察似乎有助于理解。</p>
+<h3>exceptions</h3>
+<p>exceptions主要有两种来源，一种是程序在执行某个指令时抛出异常，按照处理方式的不同又分为三种：</p>
+<ul>
+<li>fault：通常是遇到了某些可以修复的错误，所以在中断返回之后重新执行当前指令。</li>
+<li>trap：很多情况下是由用于调试，中断返回之后将顺序执行下一条指令</li>
+<li>abort：遇到了严重的、不可修复的问题，系统将终止当前进程</li>
+</ul>
+<p>另一种来源是程序通过<code>int</code>或者类似的指令主动发起中断。这相当于处理器给自己发出了一个中断信号，所以也被称为“software interrupts”。xv6中的system call就属于这个分类。software interrupts的处理方式与trap类似，返回之后顺序执行下一条指令。</p>
+<h3>interrupts</h3>
+<p>古早时代的单核系统通过一个Programmable Interrupt Controller（PIC）来处理外部外部硬件设备发来的中断信号。外部设备专用于发起中断的输出Interrupt ReQuest (IRQ) Line统一连接到PIC上，经由PIC的I/O与CPU交互。在多核系统中处理中断的硬件要更为复制一些。x86用到了Advanced Programmable Interrupt Controller（APIC），大致的架构如下图所示：</p>
+<p><img alt="multiple apic system" src="/2019/images/interrupt.001.png"></p>
+<p>各种外部I/O设备统一接入I/O APIC， I/O APIC作为路由将外部中断信号通过ICC总线转发到各个CPU内置的local APIC上。local APIC之间也可以通过ICC总线互相发送信号。</p>
+<p>就是否可以暂时被忽略， interrupts分为maskable和non-maskable两类。绝大多数I/O信号都属于maskable的范围，而non-maskable信号通常来自于硬件异常之类比较特殊的事件。</p>
+<p>在CPU一方，它可以选择是否接受硬件发来maskable信号。x86中%eflags寄存器保存了与CPU状态相关的若干标志位，其中包括一个是否接受中断消息的标志位<code>IF</code>。指令<code>cli</code>将<code>IF</code>置零，停止接受中断，与之相反指令<code>sti</code>开启中断。</p>
+<h2>基础设施</h2>
+<h3>interrupt descriptors</h3>
+<p>x86用一个64位的数据结构interrupt descriptor来指示各个interrupt/exception handler的地址（所以也称gate）。逻辑地址包括segment和offset两部分，与此对应gate中包含了16位segment selector和32位offset。此外还有若干标志位，其中包括2位descriptor privilege level（DPL），4位gate type。</p>
+<p><img alt="interrupt descriptors" src="/2019/images/interrupt.002.png"></p>
+<p>gate就进入中断后是否将<code>IF</code>标志位置零分为两种：interrupt gate(置零，暂停接受后续中断信号)和trap gate（不置零，允许套叠的中断）。此外还有一种特殊的task gate，gate中的segment selector指向<a href="#task-state-segment">task state segment</a>。</p>
+<p>系统通常预设一个interrupt descriptor table（IDT）。x86用寄存器%idtr保存IDT的起始地址。%idtr为48位，其中32位保存IDT起始地址，16位保存IDT的长度。xv6预设了一个包含256个entry的IDT。</p>
+<h3>privilege level</h3>
+<p>gate中其实包括了两个与权限控制相关的标志位：gate自身的DPL，以及segment selector的DPL。gate的DPL表示的是发起中断所必须的权限，而segment selector的DPL是执行interrupt handler时所需要的权限。xv6中所有interrupt handler都需要在kernel mode下执行，于是segment selector的DPL都为0。但gate的DPL可以不为零，例如xv6中的system call就是程序在user mode中发起中断，要求kernel提供某些服务，因此相应gate的DPL应当设为3。</p>
+<p>考虑权限检查，中断的处理流程如下：</p>
+<ol>
+<li>根据中断的类型找到IDT中相应的gate</li>
+<li>比较gate的DPL和当前CPU的权限CPL（即当前%cs所指示的segment descriptor中的DPL）。由于privilege level取值越小表示权限越高，如果DPL&lt;CPL，则没有权限发起指定中断。在xv6中进程会直接被终止，但一般来说处理这种情况的方法是再发起一个exception，“general protection fault”。</li>
+<li>比较gate的DPL和gate中segement selector的DPL已决定是否需要进行权限提升。这个过程需要借助于<a href="#task-state-segment">task state segment</a></li>
+<li>备份当前%eflags、%cs和%eip的状态</li>
+<li>读取gate中的segment selector，据此去GDT中查找对应segment descriptor，获得segment base和segment limit</li>
+<li>读取gate中的offset，检查它是否在segment limit限定范围之内</li>
+<li>如果需要的化设置%eflags</li>
+<li>将gate的segment selector和offset载入%cs和%eip，执行interrupt/exception handler</li>
+</ol>
+<h3><a name="task-state-segment"></a>Task state segment</h3>
+<p>中断有时会涉及在user mode到kernel mode之间的切换，这个切换过程涉及到将程序使用的栈从user stack切换到kernel stack。为管理kernel stack的位置，xv6使用了一个特殊的数据结构<code>taskstate</code>，其中<code>ss0</code>和<code>esp0</code>字段分别保存了%ss和%esp的状态</p>
+<div class="highlight"><pre><span></span><span class="c1">// mmu.h</span>
+<span class="k">struct</span> <span class="n">taskstate</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">uint</span> <span class="n">esp0</span><span class="p">;</span>         <span class="c1">// stack pointers and </span>
+  <span class="n">ushort</span> <span class="n">ss0</span><span class="p">;</span>        <span class="c1">// segment selectors after switching to kernel mode</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>与此相应，在GDT中加入特定的一行<code>SEG_TSS</code>，用以保存一个指向上述<code>taskstate</code>的task segment descriptor。另外有一个专用寄存器task register（%tr），其中保存着指向<code>SEG_TSS</code>的segment selector。</p>
+<p>每一个进程都维护一个<code>taskstate</code>。每当进程将要退出kernel mode，切换到user地址空间的时候，都把当前kernel stack的位置更新到<code>taskstate</code>中，并设置GDT和%tr：</p>
+<div class="highlight"><pre><span></span><span class="c1">// vm.c</span>
+<span class="kt">void</span> <span class="nf">switchuvm</span><span class="p">(</span><span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">p</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_TSS</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEG16</span><span class="p">(</span><span class="n">STS_T32A</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ts</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ts</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+  <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_TSS</span><span class="p">].</span><span class="n">s</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ts</span><span class="p">.</span><span class="n">ss0</span> <span class="o">=</span> <span class="n">SEG_KDATA</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">;</span>                    <span class="err">#</span> <span class="n">stack</span> <span class="n">segment</span>
+  <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ts</span><span class="p">.</span><span class="n">esp0</span> <span class="o">=</span> <span class="p">(</span><span class="n">uint</span><span class="p">)</span><span class="n">proc</span><span class="o">-&gt;</span><span class="n">kstack</span> <span class="o">+</span> <span class="n">KSTACKSIZE</span><span class="p">;</span>  <span class="err">#</span> <span class="n">kernel</span> <span class="n">stack</span> 
+  <span class="p">...</span>
+  <span class="n">ltr</span><span class="p">(</span><span class="n">SEG_TSS</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">);</span>                               <span class="err">#</span> <span class="err">将</span><span class="n">segment</span> <span class="n">selector载入</span><span class="o">%</span><span class="n">tr中</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>这样当进程下一次进入kernel mode的时候，就可以通过<code>taskstate</code>恢复之前的kernel stack。</p>
+<h3>instructions</h3>
+<p>x86提供<code>int</code>和<code>iret</code>指令，用于发起中断，以及从中断中返回。</p>
+<ul>
+<li>int n</li>
+</ul>
+<p><code>int</code>指令接受一个参数n，对应IDT中的第n个gate。</p>
+<p><code>int</code>指令的执行流程就是否涉及权限改变分两种情况。当中断不涉及权限改变时（中断之前已经运行在kernel mode中），handler在执行时可以直接使用当前进程的kernel stack：</p>
+<ol>
+<li>将%eflags、%cs，%eip（根据中断类型不同可能是当前指令或下一条指令）压栈。%cs和%eip组成了中断返回之后的指令位置，相当与far call指令中的return addresss</li>
+<li>将错误码<code>err</code>压栈</li>
+<li>如果是interrupt gate，将%eflags中IF标志位置零</li>
+<li>将interrupt handler对应的segment selector和指令位置分别载入%cs、%eip</li>
+<li>完成跳转，开始执行interrupt handler</li>
+</ol>
+<p>另一种情况下中断涉及权限提升。xv6中执行system call时就涉及到这个情况：CPL和DPL均为3，但interrupt/exception handler要求DPL为0。这种情况下首先需要权限提升，将进程使用的栈从user stack切换到kernel stack，切换过程如下：</p>
+<ol>
+<li>首先将%ss和%esp（user stack的地址）备份在CPU内部寄存器中</li>
+<li>读取<code>taskstate</code>中的%ss和%esp载入CPU。此后进程不再使用user stack，转而使用kernel stack</li>
+<li>将步骤1中备份的%ss、%esp保持到kernel stack上</li>
+</ol>
+<p>此时系统进入kernel mode，此后中断的执行过程与不涉及权限改变的情况相同。</p>
+<ul>
+<li>iret</li>
+</ul>
+<p><code>iret</code>之于<code>int</code>类似<code>ret</code>之于<code>call</code>，具体的操作是从栈上还原%eip、%cs和%eflags（如果涉及权限改变，还需要还原%ss和%esp），继续中断之前的流程。</p>
+<h3>trap frame</h3>
+<p>与函数调用时使用frame的做法类似，xv6在执行中断时也通过trap frame的来维护寄存器状态。trap frame是kernel stack中的一段区域，它保存着进入中断之前各个寄存器的状态。从中断返回之后，系统需要将trap frame中保存的状态还原到各个寄存器中，以继续中断之前的控制流。</p>
+<div class="highlight"><pre><span></span><span class="k">struct</span> <span class="n">trapframe</span> <span class="p">{</span>
+  <span class="c1">// registers as pushed by pusha</span>
+  <span class="n">uint</span> <span class="n">edi</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">esi</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">ebp</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">ebx</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">edx</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">ecx</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">eax</span><span class="p">;</span>
+
+  <span class="c1">// rest of trap frame</span>
+  <span class="n">ushort</span> <span class="n">gs</span><span class="p">;</span>
+  <span class="n">ushort</span> <span class="n">fs</span><span class="p">;</span>
+  <span class="n">ushort</span> <span class="n">es</span><span class="p">;</span>
+  <span class="n">ushort</span> <span class="n">ds</span><span class="p">;</span>
+
+  <span class="n">uint</span> <span class="n">trapno</span><span class="p">;</span>
+
+  <span class="c1">// below here defined by x86 hardware</span>
+  <span class="n">uint</span> <span class="n">err</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">eip</span><span class="p">;</span>
+  <span class="n">ushort</span> <span class="n">cs</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">eflags</span><span class="p">;</span>
+
+  <span class="c1">// below here only when crossing rings, such as from user to kernel</span>
+  <span class="n">uint</span> <span class="n">esp</span><span class="p">;</span>
+  <span class="n">ushort</span> <span class="n">ss</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<h2>设置IDT</h2>
+<h3>trap vectors</h3>
+<p>xv6用一个trap vector数组统一管理interrupt/exception handler的地址。数组<code>vectors</code>定义在vector.S中（通过脚本vectors.pl生成）。数组元素<code>vectors[i]</code>指向以下一段指令：</p>
+<div class="highlight"><pre><span></span><span class="n">vectori</span><span class="o">:</span>
+  <span class="n">pushl</span> <span class="n">$0</span>  <span class="err">#</span> <span class="n">errer</span> <span class="n">code</span><span class="o">,</span> <span class="n">trapframe</span><span class="o">.</span><span class="na">err</span>
+  <span class="n">pushl</span> <span class="n">$i</span>  <span class="err">#</span> <span class="n">trap</span> <span class="n">no</span><span class="o">,</span> <span class="n">trapframe</span><span class="o">.</span><span class="na">trapno</span>
+  <span class="n">jmp</span> <span class="n">alltraps</span>
+</pre></div>
+
+
+<p>在将错误码<code>err</code>和序号<code>trapno</code>压栈之后，<code>vector[i]</code>跳转到<code>alltraps</code>：</p>
+<div class="highlight"><pre><span></span><span class="c1"># trapasm.S</span>
+<span class="p">.</span><span class="n">globl</span> <span class="n">alltraps</span>
+<span class="n">alltraps</span><span class="p">:</span>
+  <span class="c1"># Build trap frame.</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">ds</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">es</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">fs</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">gs</span>
+  <span class="n">pushal</span>    <span class="c1"># push all general purpose registers</span>
+
+  <span class="c1"># Set up data and per-cpu segments.</span>
+  <span class="n">movw</span> <span class="err">$</span><span class="p">(</span><span class="n">SEG_KDATA</span><span class="o">&lt;&lt;</span><span class="mi">3</span><span class="p">),</span> <span class="o">%</span><span class="n">ax</span>
+  <span class="n">movw</span> <span class="o">%</span><span class="n">ax</span><span class="p">,</span> <span class="o">%</span><span class="n">ds</span>
+  <span class="n">movw</span> <span class="o">%</span><span class="n">ax</span><span class="p">,</span> <span class="o">%</span><span class="n">es</span>
+  <span class="n">movw</span> <span class="err">$</span><span class="p">(</span><span class="n">SEG_KCPU</span><span class="o">&lt;&lt;</span><span class="mi">3</span><span class="p">),</span> <span class="o">%</span><span class="n">ax</span>
+  <span class="n">movw</span> <span class="o">%</span><span class="n">ax</span><span class="p">,</span> <span class="o">%</span><span class="n">fs</span>
+  <span class="n">movw</span> <span class="o">%</span><span class="n">ax</span><span class="p">,</span> <span class="o">%</span><span class="n">gs</span>
+
+  <span class="c1"># Call trap(tf), where tf=%esp</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">esp</span>     <span class="c1"># trap frame处于当前栈的端，即%esp指向的地址，故此处将%esp压栈作为trap的参数。</span>
+  <span class="k">call</span> <span class="n">trap</span>
+  <span class="n">addl</span> <span class="err">$</span><span class="mi">4</span><span class="p">,</span> <span class="o">%</span><span class="n">esp</span>  <span class="c1"># 从栈上弹出参数，`trap`函数结束</span>
+</pre></div>
+
+
+<p><code>alltraps</code>的工作是：</p>
+<ul>
+<li>创建trap frame：将除了%cs、%ss之外所有的segment register和所有general purpose registe的内容压栈。%cs和%ss在执行<code>int</code>指令的过程中处理。</li>
+<li>载入data segment和用于维护CPU状态的per-cpu segment</li>
+<li>调用<code>trap</code>函数。之前创建的trap frame是<code>trap</code>函数的参数。</li>
+</ul>
+<p>与<code>alltrap</code>镜像对称，xv6用<code>trapret</code>来处理从中断返回的过程：</p>
+<div class="highlight"><pre><span></span><span class="n">trapret</span><span class="o">:</span>
+  <span class="n">popal</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">gs</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">fs</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">es</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">ds</span>
+  <span class="n">addl</span> <span class="n">$0x8</span><span class="o">,</span> <span class="o">%</span><span class="n">esp</span>  <span class="err">#</span> <span class="n">trapno</span> <span class="n">and</span> <span class="n">errcode</span>
+  <span class="n">iret</span>
+</pre></div>
+
+
+<p>如果追踪各个寄存器状态，进入中断过程中它们的演变过程大致如下：</p>
+<ul>
+<li>进程通过指令<code>int</code>进入中断，如果涉及从user stack到kernel stack的切换，<code>int</code>将首先备份user stack对应的%ss和%esp，从<code>taskstate</code>中读取kernel stack对应的%ss和%esp。此后使用kernel stack。</li>
+<li>将当前控制流的%elags、%cs、%eip压栈</li>
+<li>根据<code>trapno</code>从<code>idt</code>中查找相应的gate，进行权限验证，如果验证通过，将gate中记录的interrupt handler指令的地址载入%cs和%eip中，并设置%eflags</li>
+<li>将<code>err</code>和<code>trapno</code>序号压栈</li>
+<li>通过<code>alltraps</code>建立trap frame，将%ds、%es、%fs、%gs以及所有通用寄器压栈</li>
+<li>将当前trap frame地址%esp压栈，它将被解读为一个指向<code>trapframe</code>的指针被<code>trap</code>函数引为参数</li>
+<li>调用<code>trap</code>函数</li>
+<li>从<code>trap</code>函数返回后，从栈上弹出参数</li>
+<li>通过<code>trapret</code>，将执行trap之前通用寄存器和%ds、%es、%fs、%gs的内容从栈上弹出，恢复到各自的位置。从栈上弹出<code>`err</code>和<code>trapno</code>。</li>
+<li>执行<code>iret</code>，恢复%elags、%cs、%eip，如果涉及权限恢复，还需要还原%ss和%esp</li>
+</ul>
+<h3>初始化</h3>
+<p>xv6创建了一个包含256个entry的IDT<code>gatedesc</code>。<code>tvinit</code>函数遍历<code>vectors</code>，为各个trap vector创建gate，并依次将它们加载到IDT中。</p>
+<div class="highlight"><pre><span></span><span class="c1">// mmu.h</span>
+<span class="c1">// - istrap: 1 for a trap (= exception) gate, 0 for an interrupt gate.</span>
+<span class="c1">//   interrupt gate clears FL_IF, trap gate leaves FL_IF alone</span>
+<span class="c1">// - sel: Code segment selector for interrupt/trap handler</span>
+<span class="c1">// - off: Offset in code segment for interrupt/trap handler</span>
+<span class="c1">// - dpl: Descriptor Privilege Level: the privilege level required to invoke this gate</span>
+<span class="cp">#define SETGATE(gate, istrap, sel, off, d) {...} </span>
+
+<span class="c1">// trap.c</span>
+<span class="k">struct</span> <span class="n">gatedesc</span> <span class="n">idt</span><span class="p">[</span><span class="mi">256</span><span class="p">];</span>
+<span class="k">extern</span> <span class="n">uint</span> <span class="n">vectors</span><span class="p">[];</span>  <span class="c1">// in vectors.S: array of 256 entry pointers</span>
+
+<span class="kt">void</span> <span class="nf">tvinit</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">i</span><span class="p">;</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+    <span class="n">SETGATE</span><span class="p">(</span><span class="n">idt</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">SEG_KCODE</span><span class="o">&lt;&lt;</span><span class="mi">3</span><span class="p">,</span> <span class="n">vectors</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="mi">0</span><span class="p">);</span>
+  <span class="n">SETGATE</span><span class="p">(</span><span class="n">idt</span><span class="p">[</span><span class="n">T_SYSCALL</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="n">SEG_KCODE</span><span class="o">&lt;&lt;</span><span class="mi">3</span><span class="p">,</span> <span class="n">vectors</span><span class="p">[</span><span class="n">T_SYSCALL</span><span class="p">],</span> <span class="n">DPL_USER</span><span class="p">);</span>  <span class="c1">// T_SYSCALL = 0x40</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>其中比较特殊的是<code>idt[T_SYSCALL]</code>，这是唯一一个允许从user mode中直接发起的中断，对应的是用户程序向kernel发起system call。</p>
+<p><code>trapno</code>的定义在traps.h文件中。根据x86的惯例，序号0～19对应一些预设exception信号，外部I/O设备发来的IRQ信号对应到32及之后的序号上。</p>
+<hr>
+<h4>参考</h4>
+<ol>
+<li><a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture09-interrupts/lecture09-interrupts.pdf">UCI course on interrupt</a></li>
+<li><a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf">xv6 Book</a></li>
+<li><a href="http://shop.oreilly.com/product/9780596000028.do">Understanding the Linux Kernel</a></li>
+</ol>
+    </article>
+
+
+    <hr>
+
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <ul class="list-inline text-center">
+                            <li>
+                                <a href="https://github.com/aphasiayc">
+                                    <span class="fa-stack fa-lg">
+                                        <i class="fa fa-circle fa-stack-2x"></i>
+                                        <i class="fa fa-github fa-stack-1x fa-inverse"></i>
+                                    </span>
+                                </a>
+                            </li>
+                    </ul>
+<p class="copyright text-muted">
+    Blog powered by <a href="http://getpelican.com">Pelican</a>,
+    which takes great advantage of <a href="http://python.org">Python</a>. <br />        &copy;  aphasiayc
+</p>                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="/theme/js/jquery.min.js"></script>
+
+    <!-- Bootstrap Core JavaScript -->
+    <script src="/theme/js/bootstrap.min.js"></script>
+
+        <!-- Custom Theme JavaScript -->
+        <script src="/theme/js/clean-blog.min.js"></script>
+
+</body>
+
+</html>

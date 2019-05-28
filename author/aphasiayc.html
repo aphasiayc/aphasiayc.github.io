@@ -85,13 +85,41 @@
         <div class="row">
             <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
         <div class="post-preview">
+            <a href="/2019/xv6-system-calls.html" rel="bookmark" title="Permalink to xv6: system calls">
+                <h2 class="post-title">
+                    xv6: system calls
+                </h2>
+            </a>
+                <p class="article-summary">
+                    一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...
+                </p>
+            <p class="post-meta">Posted by
+                    <a href="/author/aphasiayc.html">aphasiayc</a>
+                 on Tue 28 May 2019
+            </p>
+        </div>
+        <div class="post-preview">
+            <a href="/2019/xv6-interrupts.html" rel="bookmark" title="Permalink to xv6: interrupts">
+                <h2 class="post-title">
+                    xv6: interrupts
+                </h2>
+            </a>
+                <p class="article-summary">
+                    顾名思义，中断是处理器暂停当前顺序的控制流，转而执行另外指令的操作。触发中断通常有两种方式：CPU在执行指令过程中发生异常（同步方式），或者接收到了外部硬件发来的信号（异步方式）。按照Intel的分类，同步中断称为exception，而异步中断称为interrupt。通常处...
+                </p>
+            <p class="post-meta">Posted by
+                    <a href="/author/aphasiayc.html">aphasiayc</a>
+                 on Tue 28 May 2019
+            </p>
+        </div>
+        <div class="post-preview">
             <a href="/2019/xv6-address-space.html" rel="bookmark" title="Permalink to xv6: address space">
                 <h2 class="post-title">
                     xv6: address space
                 </h2>
             </a>
                 <p class="article-summary">
-                    所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和ker...
+                    所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的系统内存分配状况。xv6的内存管理主要依靠分页的办法，通过分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现进程之间的内存隔离。进程内部则通过将地址空间切分user和kerne...
                 </p>
             <p class="post-meta">Posted by
                     <a href="/author/aphasiayc.html">aphasiayc</a>
@@ -105,7 +133,7 @@
                 </h2>
             </a>
                 <p class="article-summary">
-                    通常当我们运行某个程序的时候，其实是kernel替我们在运行它，具体的工作包括启动、维护它的状态，以及在结束后清理现场等。这当中的一个问题是，kernel本身作为一个（特殊的）程序是如何启动的？ 事实上kernel启动的过程包括了若干个阶段： 首先由BIOS载入boot...
+                    通常当我们运行某个程序的时候，其实是kernel替我们在运行它，包括启动程序、维护它的状态，以及在结束后清理现场等。这当中的一个问题是，kernel本身作为一个（特殊的）程序是如何启动的？...
                 </p>
             <p class="post-meta">Posted by
                     <a href="/author/aphasiayc.html">aphasiayc</a>
@@ -119,7 +147,7 @@
                 </h2>
             </a>
                 <p class="article-summary">
-                    和现代操作系统比起来，xv6基本只能算是个复古风格的玩具模型。它仿照unix version 6设计，不涉及现代操作系统中各种复杂的优化。但好处是简单明了，码工精美，十分适合作为我等初级选手的入门教程。 xv6适用于多核x86系统，主要使用ANSI...
+                    和现代操作系统比起来，xv6基本只能算是个复古风格的玩具模型。它仿照unix version 6设计，不涉及现代操作系统中各种复杂的优化。但好处是简单明了，码工精美，十分适合拿来给我等（挑战linux kernel失败的）初级选手作入门教程。...
                 </p>
             <p class="post-meta">Posted by
                     <a href="/author/aphasiayc.html">aphasiayc</a>

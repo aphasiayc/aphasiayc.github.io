@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+            <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <title>xv6: system calls</title>
+
+        <!-- Bootstrap Core CSS -->
+        <link href="/theme/css/bootstrap.min.css" rel="stylesheet">
+
+        <!-- Custom CSS -->
+        <link href="/theme/css/clean-blog.min.css" rel="stylesheet">
+
+        <!-- Code highlight color scheme -->
+            <link href="/theme/css/code_blocks/darkly.css" rel="stylesheet">
+
+
+        <!-- Custom Fonts -->
+        <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+        <link href='https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+
+
+        <meta name="description" content="一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...">
+
+        <meta name="author" content="aphasiayc">
+
+
+	                <meta property="og:locale" content="">
+		<meta property="og:site_name" content="Notes">
+
+	<meta property="og:type" content="article">
+            <meta property="article:author" content="/author/aphasiayc.html">
+	<meta property="og:url" content="/2019/xv6-system-calls.html">
+	<meta property="og:title" content="xv6: system calls">
+	<meta property="article:published_time" content="2019-05-28 11:17:00+08:00">
+            <meta property="og:description" content="一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...">
+
+            <meta property="og:image" content="/theme/images/post-bg.jpg">
+</head>
+
+<body class="article-xv6-system-calls">
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+        <div class="container-fluid">
+            <!-- Brand and toggle get grouped for better mobile display -->
+            <div class="navbar-header page-scroll">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">Notes</a>
+            </div>
+
+            <!-- Collect the nav links, forms, and other content for toggling -->
+            <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                <ul class="nav navbar-nav navbar-right">
+
+                </ul>
+            </div>
+            <!-- /.navbar-collapse -->
+        </div>
+        <!-- /.container -->
+    </nav>
+
+    <!-- Page Header -->
+        <header class="intro-header" style="background-image: url('/theme/images/post-bg.jpg')">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <div class="post-heading">
+                        <h1>xv6: system calls</h1>
+                        <span class="meta">Posted by
+                                <a href="/author/aphasiayc.html">aphasiayc</a>
+                             on Tue 28 May 2019
+                        </span>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+    <!-- Post Content -->
+    <article>
+        <p>一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user mode下的应用程序没有足够操作的权限。对于这个问题，xv6的办法是由kernel提供一些预设的system call，用户程序通过IDT中的特殊gate，<code>T_SYSCALL</code>发起中断。<code>T_SYSCALL</code>允许user mode下的调用，在执行<code>int</code>指令的过程中进行提权进入kernel mode，然后由kenrel执行指定的操作。</p>
+<h2>执行路径</h2>
+<p>xv6预设了一个系统函数表<code>syscalls</code>，将syscall number对应到具体的kernel中定义函数（函数体在sysproc.c、sysfile.c等文件中）：</p>
+<div class="highlight"><pre><span></span><span class="c1">// syscall.c</span>
+<span class="k">static</span> <span class="nf">int</span> <span class="p">(</span><span class="o">*</span><span class="n">syscalls</span><span class="p">[])(</span><span class="kt">void</span><span class="p">)</span> <span class="o">=</span> <span class="p">{</span>
+<span class="p">[</span><span class="n">SYS_fork</span><span class="p">]</span>    <span class="n">sys_fork</span><span class="p">,</span>  <span class="c1">// SYS_fork = 1</span>
+<span class="p">...</span>
+<span class="p">[</span><span class="n">SYS_close</span><span class="p">]</span>   <span class="n">sys_close</span><span class="p">,</span> <span class="c1">// SYS_close = 21</span>
+<span class="p">};</span>
+</pre></div>
+
+
+<p>但是这些函数只能在kernel mode中运行（kenrel code所处的内存分页<code>PTE_U</code>为0），用户程序不能直接调用。</p>
+<p>为给用户程序提供入口，xv6提供了一个头文件user.h中，其中声明了一系列system call。用户程序只要<code>include</code>这个文件，就可以像调用库函数一样调用这些system call。</p>
+<div class="highlight"><pre><span></span><span class="c1">// system calls</span>
+<span class="kt">int</span> <span class="nf">fork</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">exit</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="n">__attribute__</span><span class="p">((</span><span class="n">noreturn</span><span class="p">));</span>
+<span class="kt">int</span> <span class="nf">wait</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">pipe</span><span class="p">(</span><span class="kt">int</span><span class="o">*</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">write</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span> <span class="kt">void</span><span class="o">*</span><span class="p">,</span> <span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">read</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span> <span class="kt">void</span><span class="o">*</span><span class="p">,</span> <span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">close</span><span class="p">(</span><span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">kill</span><span class="p">(</span><span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">exec</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">,</span> <span class="kt">char</span><span class="o">**</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">open</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">,</span> <span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">mknod</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">,</span> <span class="kt">short</span><span class="p">,</span> <span class="kt">short</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">unlink</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">fstat</span><span class="p">(</span><span class="kt">int</span> <span class="n">fd</span><span class="p">,</span> <span class="k">struct</span> <span class="n">stat</span><span class="o">*</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">link</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">,</span> <span class="kt">char</span><span class="o">*</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">mkdir</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">chdir</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">dup</span><span class="p">(</span><span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">getpid</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
+<span class="kt">char</span><span class="o">*</span> <span class="nf">sbrk</span><span class="p">(</span><span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">sleep</span><span class="p">(</span><span class="kt">int</span><span class="p">);</span>
+<span class="kt">int</span> <span class="nf">uptime</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
+</pre></div>
+
+
+<h3>一个栗子：fork</h3>
+<p>以下以system call中的<code>fork</code>函数为例。它的函数体定义在usys.S中：</p>
+<div class="highlight"><pre><span></span><span class="c1">// usys.S</span>
+<span class="cp">#define SYSCALL(name) \</span>
+<span class="cp">  .globl name; \</span>
+<span class="cp">  name: \</span>
+<span class="cp">    movl $SYS_ ## name, %eax; \</span>
+<span class="cp">    int $T_SYSCALL; \</span>
+<span class="cp">    ret</span>
+
+<span class="n">SYSCALL</span><span class="p">(</span><span class="n">fork</span><span class="p">)</span>
+<span class="p">...</span>
+</pre></div>
+
+
+<p>宏<code>SYSCALL</code>将相应的序号保存在%eax中（<code>fork</code>对应到序号为<code>SYS_fork</code>），然后执行<code>int</code>指令进入IDT中序号为<code>T_SYSCALL</code>的gate。控制流跳转执行相应的handler，通过<code>alltraps</code>建立trap frame，然后调用<code>trap</code>函数：</p>
+<div class="highlight"><pre><span></span><span class="c1">// trap.c</span>
+<span class="kt">void</span> <span class="nf">trap</span><span class="p">(</span><span class="k">struct</span> <span class="n">trapframe</span> <span class="o">*</span><span class="n">tf</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">trapno</span> <span class="o">==</span> <span class="n">T_SYSCALL</span><span class="p">){</span>
+    <span class="p">...</span>
+    <span class="n">proc</span><span class="o">-&gt;</span><span class="n">tf</span> <span class="o">=</span> <span class="n">tf</span><span class="p">;</span>  <span class="c1">// proc定义在proc.h中，是一个per-CPU变量</span>
+    <span class="n">syscall</span><span class="p">();</span>
+    <span class="p">...</span>
+    <span class="k">return</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>trap</code>函数读取trap frame，检查<code>trapno</code>，进入<code>syscall</code>函数：</p>
+<div class="highlight"><pre><span></span><span class="c1">// syscall.c</span>
+<span class="kt">void</span> <span class="nf">syscall</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">num</span><span class="p">;</span>
+
+  <span class="n">num</span> <span class="o">=</span> <span class="n">proc</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">eax</span><span class="p">;</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">num</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="n">num</span> <span class="o">&lt;</span> <span class="n">NELEM</span><span class="p">(</span><span class="n">syscalls</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="n">syscalls</span><span class="p">[</span><span class="n">num</span><span class="p">])</span> <span class="p">{</span>
+    <span class="n">proc</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">eax</span> <span class="o">=</span> <span class="n">syscalls</span><span class="p">[</span><span class="n">num</span><span class="p">]();</span>
+  <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+    <span class="p">...</span>
+    <span class="n">proc</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">eax</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>syscall</code>从trap frame的%eax中读取指定的序号，然后从系统函数表<code>syscalls</code>中查找相应的函数。<code>SYS_fork</code>对应的是<code>sys_fork</code>函数：</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">sys_fork</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="n">fork</span><span class="p">();</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>至此控制流从用户程序发起的system call<code>fork</code>到了kernel中定义的实际负责创建新进程的函数<code>fork</code>。</p>
+<h2>如何调用</h2>
+<p>在应用程序的角度看，调用system call时和通常调用库函数几乎没有区别。以最基础的应用程序shell为例：</p>
+<div class="highlight"><pre><span></span><span class="c1">// sh.c</span>
+<span class="cp">#include</span> <span class="cpf">&quot;user.h&quot;</span><span class="cp"></span>
+<span class="p">...</span>
+
+<span class="kt">int</span> <span class="n">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="c1">// Read and run input commands.</span>
+  <span class="k">while</span><span class="p">(</span><span class="n">getcmd</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">buf</span><span class="p">))</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">){</span>
+    <span class="p">...</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">fork1</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+      <span class="n">runcmd</span><span class="p">(</span><span class="n">parsecmd</span><span class="p">(</span><span class="n">buf</span><span class="p">));</span>
+    <span class="n">wait</span><span class="p">();</span>
+  <span class="p">}</span>
+  <span class="n">exit</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="n">fork1</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">pid</span><span class="p">;</span>
+
+  <span class="n">pid</span> <span class="o">=</span> <span class="n">fork</span><span class="p">();</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">pid</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;fork&quot;</span><span class="p">);</span>
+  <span class="k">return</span> <span class="n">pid</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>shell从输入中得到一个命令之后，会从当前进程<code>fork</code>出一个子进程，然后在子进程中执行收到的命令。当前进程执行<code>wait</code>直至子进程返回。<code>fork</code>、<code>wait</code>都是system call。</p>
+<hr>
+<h4>参考</h4>
+<ol>
+<li><a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture09-interrupts/lecture09-interrupts.pdf">UCI course on interrupt</a></li>
+<li><a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf">xv6 Book</a></li>
+</ol>
+    </article>
+
+
+    <hr>
+
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <ul class="list-inline text-center">
+                            <li>
+                                <a href="https://github.com/aphasiayc">
+                                    <span class="fa-stack fa-lg">
+                                        <i class="fa fa-circle fa-stack-2x"></i>
+                                        <i class="fa fa-github fa-stack-1x fa-inverse"></i>
+                                    </span>
+                                </a>
+                            </li>
+                    </ul>
+<p class="copyright text-muted">
+    Blog powered by <a href="http://getpelican.com">Pelican</a>,
+    which takes great advantage of <a href="http://python.org">Python</a>. <br />        &copy;  aphasiayc
+</p>                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="/theme/js/jquery.min.js"></script>
+
+    <!-- Bootstrap Core JavaScript -->
+    <script src="/theme/js/bootstrap.min.js"></script>
+
+        <!-- Custom Theme JavaScript -->
+        <script src="/theme/js/clean-blog.min.js"></script>
+
+</body>
+
+</html>

@@ -33,7 +33,7 @@
 
 
 
-        <meta name="description" content="所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和ker...">
+        <meta name="description" content="所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的系统内存分配状况。xv6的内存管理主要依靠分页的办法，通过分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现进程之间的内存隔离。进程内部则通过将地址空间切分user和kerne...">
 
         <meta name="author" content="aphasiayc">
 
@@ -45,8 +45,8 @@
             <meta property="article:author" content="/author/aphasiayc.html">
 	<meta property="og:url" content="/2019/xv6-address-space.html">
 	<meta property="og:title" content="xv6: address space">
-	<meta property="article:published_time" content="2019-05-27 00:58:32.298788+08:00">
-            <meta property="og:description" content="所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和ker...">
+	<meta property="article:published_time" content="2019-05-27 00:11:00+08:00">
+            <meta property="og:description" content="所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的系统内存分配状况。xv6的内存管理主要依靠分页的办法，通过分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现进程之间的内存隔离。进程内部则通过将地址空间切分user和kerne...">
 
             <meta property="og:image" content="/theme/images/post-bg.jpg">
 </head>
@@ -102,7 +102,7 @@
             <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
     <!-- Post Content -->
     <article>
-        <p>所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的内存分配状况。xv6主要依靠分页的办法来管理内存，通过建立分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现它们相互之间的内存隔离。进程内部则通过将地址空间切分user和kernel两个部分来实现权限的分级管理。</p>
+        <p>所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的系统内存分配状况。xv6的内存管理主要依靠分页的办法，通过分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现进程之间的内存隔离。进程内部则通过将地址空间切分user和kernel两个部分来实现权限的分级管理。</p>
 <h2>机制</h2>
 <h3>多级分页</h3>
 <p>使用分页机制管理内存时，系统需要借助分页表来维护从线性地址到物理地址的映射关系。分页表可能会很长，例如x86中内存地址长度为2<sup>32</sup>位。如果设定一页的长度为2<sup>12</sup>位（4 kB），那就总共需要2<sup>20</sup>（1,048,576）个page table entry(PTE)。假设一个PTE占用4 bytes，那么一张完整的分页表将占用4 MB内存。4 MB也许不能算是很大的开销，但为了实现内存隔离，各个进程维护各自独立的分页表，于是系统也许需要同时保存成百上千张分页表。如果没有适当的优化，分页表本身将占用若干GB的空间。</p>
@@ -131,12 +131,11 @@
 <p><img alt="translation" src="/2019/images/address.001.png"></p>
 <h3>权限控制</h3>
 <p>x86的segment机制中就包含权限控制，segment selector和segment descriptor中都包含用以标示权限的标志位privilege level(PL)。PL通常占用2个比特位，原则上可以标识4种不同的权限等级。xv6只使用了其中的两个等级：0（kernel mode）和3（user mode）。一些关键的操作（例如异常处理、硬件I/O、system call）只能在kernel mode中进行。</p>
-<p>但事实上xv6在内存管理上几乎不依赖segment机制，SDT中设定的各个全局segment descriptor（code、stack、data等）都覆盖了[0, 4 GB）的线性地址空间。内存权限保护是通过分页表PTE中的特殊标志位<code>PTE_U</code>来实现。只用当<code>PTE_U</code>设置为1时，对应的地址空间才允许在user mode下访问。</p>
+<p>但事实上xv6在内存管理上几乎不依赖segment机制，SDT中设定的各个全局segment descriptor（code、stack、data等）都覆盖了[0, 4 GB）的线性地址空间。权限保护是通过分页表PTE中的特殊标志位<code>PTE_U</code>来实现。只用当<code>PTE_U</code>设置为1时，对应的地址空间才允许在user mode下访问。</p>
 <h3>分配模型</h3>
-<p>xv6中每一个进程各自维护一张分页表，各个进程拥有4 GB的独立地址空间，进程间相互隔离。</p>
-<p>用户进程通常运行在user mode下，当程序需要进行I/O、异常处理等操作时，需要通过中断机制进入kernel mode，转而执行kernel预设的一段指令（interrupt handlers）。于此相应，xv6中每个进程的地址空间都包含user（0 ~ 2 GB）和kernel（2 ～ 4 GB）两部分，地址空间分配如下图所示。</p>
+<p>xv6中每个进程都独立拥有4 GB的独立地址空间，其中包括user[0 ~ 2 GB)和kernel[2 ～ 4 GB)两部分，地址空间分配如下图所示。</p>
 <p><img alt="model" src="/2019/images/address.002.png"></p>
-<p>与两种权限等级相对应，每个进程都拥有两个栈：user stack和kernel stack。</p>
+<p>用户进程通常运行在user mode下，使用user部分的地址空间。当程序需要进行I/O、异常处理等操作时，进程通过中断机制提升权限进入kernel mode，转而执行kernel中预设的指令（interrupt handlers）。与两种权限等级相对应，每个进程都拥有两个栈：user stack和kernel stack。</p>
 <h2>实现</h2>
 <h3>分页管理</h3>
 <p>结构体<code>kmem</code>负责管理分页。<code>kmem</code>维护了一个包含所有可用分页的链表<code>freelist</code>：</p>
@@ -156,7 +155,7 @@
 <ul>
 <li>allocate a page</li>
 </ul>
-<p><code>kalloc</code>取出<code>freelist</code>中的第一个可用分页外部程序使用，同时令<code>freelist</code>指向下一个可用分页。</p>
+<p>当程序需要更多内存的时候，kernel通过<code>kalloc</code>取出<code>freelist</code>中的第一个分页以供使用，同时令<code>freelist</code>指向下一个可用分页。</p>
 <div class="highlight"><pre><span></span><span class="kt">char</span><span class="o">*</span> <span class="nf">kalloc</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
   <span class="k">struct</span> <span class="n">run</span> <span class="o">*</span><span class="n">r</span><span class="p">;</span>
 
@@ -212,12 +211,17 @@
 </pre></div>
 
 
-<p>xv6在main函数中通过<code>freerange</code>将kernel的<code>end</code>到<code>P2V(PHYSTOP)</code>之间的VA区间切分成大小为4 kB的小段，依次插入到<code>freelist</code>中。<code>PHYSTOP</code>的值为0xe000000，xv6实际可以操作的地址空间小于224 MB。</p>
+<p><code>freerange</code>在初始化的过程中非常有用。xv6在main函数中就通过<code>freerange</code>将kernel的<code>end</code>到<code>P2V(PHYSTOP)</code>之间的VA区间切分成大小为4 kB的小段，依次插入到<code>freelist</code>中。<code>PHYSTOP</code>的值为0xe000000，xv6实际可以操作的地址空间小于224 MB。</p>
 <p><code>kmem</code>直接操作的VA，实际上管理的是PA。</p>
 <h3>设置分页表</h3>
 <p><code>mappages</code>的作用是在分页表<code>pgdir</code>中设置虚拟地址到物理地址的对应关系。它将从<code>va</code>开始的一段长度为<code>size</code>的连续虚拟地址空间映射到与之对应的从<code>pa</code>开始的一段物理地址空间。</p>
-<p><code>mappages</code>通过<code>walkpgdir</code>来查找虚拟地址<code>va</code>对应的PTE。<code>walkpgdir</code>首先根据<code>PDX(va)</code>查找<code>va</code>在初级分页表<code>pgdir</code>中对应的PDE，读取对应二级分页表的物理地址。如果对应的二级分页表不存在，则通过<code>kalloc</code>申请一个新的内存页。然后根据<code>PTX(va)</code>查找<code>va</code>在二级分页表中对应的PTE。</p>
-<p><code>walkpgdir</code>返回与<code>va</code>对应PTE，然后<code>mappages</code>将<code>pa</code>写入到PTE的PPN中，并设置<code>PTE_P</code>标记位，标示这段地址已经被占用。</p>
+<p><code>mappages</code>通过<code>walkpgdir</code>来查找虚拟地址<code>va</code>对应的PTE。<code>walkpgdir</code>的流程是：</p>
+<ul>
+<li>首先根据<code>PDX(va)</code>查找<code>va</code>在初级分页表<code>pgdir</code>中对应的PDE，读取对应二级分页表的物理地址</li>
+<li>如果对应的二级分页表不存在并且参数<code>alloc</code>设为1时，就通过<code>kalloc</code>申请一个新的内存页</li>
+<li>然后根据<code>PTX(va)</code>查找<code>va</code>在二级分页表中对应的PTE并返回</li>
+</ul>
+<p><code>walkpgdir</code>最后返回与<code>va</code>对应PTE，然后<code>mappages</code>将<code>pa</code>写入到PTE的PPN中，并设置<code>PTE_P</code>标记位，标示这段地址已经被占用。</p>
 <div class="highlight"><pre><span></span><span class="c1">// vm.c</span>
 <span class="k">static</span> <span class="n">pte_t</span> <span class="o">*</span><span class="nf">walkpgdir</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="k">const</span> <span class="kt">void</span> <span class="o">*</span><span class="n">va</span><span class="p">,</span> <span class="kt">int</span> <span class="n">alloc</span><span class="p">)</span> <span class="p">{</span>
   <span class="n">pde_t</span> <span class="o">*</span><span class="n">pde</span><span class="p">;</span>
@@ -303,7 +307,7 @@
 </pre></div>
 
 
-<p><code>setupkvm</code>返回一个PDT的地址<code>pgdir</code>。其中kernel部分（2 GB以上）的地址空间已经设置完毕，user部分（2 GB以下）空白。</p>
+<p><code>setupkvm</code>返回一个PDT的地址<code>pgdir</code>。其中user部分（2 GB以下）为空白，kernel部分（2 GB以上）的地址空间已经设置完毕。此处一个细节是，<code>setupkvm</code>将<code>kmap</code>所描述的完整的物理内存空间（从0到<code>PHYSTOP</code>，以及<code>DEVSPACE</code>)都加载进了<code>pdgir</code>的kernel部分，因而此后当kernel通过<code>kalloc</code>获得新的内存页时，不需要更新分页表。与之对应，当user程序申请更多分页时（经由名为<code>sbrk</code>的system call实现），每次都需要调用<code>mappages</code>来将新的分页设置到<code>pgdir</code>的user部分中（具体见下一节<code>allocuvm</code>函数）。</p>
 <h3>user地址空间</h3>
 <p><code>allocuvm</code>为user部分分配内存。当需要更多内存（<code>newsz</code>&gt;<code>oldsz</code>）时，<code>allocuvm</code>通过<code>kalloc</code>申请新的分页<code>mem</code>，重置分页的内容，而后通过<code>mappages</code>将user地址<code>a</code>到<code>mem</code>之间的映射关系写入到<code>pgdir</code>中。</p>
 <div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">allocuvm</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">uint</span> <span class="n">oldsz</span><span class="p">,</span> <span class="n">uint</span> <span class="n">newsz</span><span class="p">)</span> <span class="p">{</span>
@@ -331,7 +335,7 @@
 </pre></div>
 
 
-<p>在申请足够的地址空间之后，<code>loaduvm</code>在<code>pgdir</code>中找到相应的PTE，读取<code>PA</code>，并通过<code>readi</code>将硬盘上的可执行文件（elf）载入内存。</p>
+<p>在申请足够的地址空间之后，<code>loaduvm</code>在<code>pgdir</code>中找到相应的PTE，读取其中的PPN，并通过<code>readi</code>将硬盘上的可执行文件（elf）载入这个地址。</p>
 <div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">loaduvm</span><span class="p">(</span><span class="n">pde_t</span> <span class="o">*</span><span class="n">pgdir</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">,</span> <span class="k">struct</span> <span class="n">inode</span> <span class="o">*</span><span class="n">ip</span><span class="p">,</span> <span class="n">uint</span> <span class="n">offset</span><span class="p">,</span> <span class="n">uint</span> <span class="n">sz</span><span class="p">)</span> <span class="p">{</span>
   <span class="n">uint</span> <span class="n">i</span><span class="p">,</span> <span class="n">pa</span><span class="p">,</span> <span class="n">n</span><span class="p">;</span>
   <span class="n">pte_t</span> <span class="o">*</span><span class="n">pte</span><span class="p">;</span>
@@ -390,7 +394,7 @@
 </pre></div>
 
 
-<p>值得注意的是，xv6将kernel的指令和数据加载到了每一个进程的地址空间中。这样当应用程序需要使用某些kernel的功能时，就不需要额外执行一次切换分页表的操作，从而节省了CPU时间。尽管如此，应用程序并不能直接调用kernel中的函数。这是因为应用程序通常运行在user mode下，而kernel中的函数必须在权限等级更高的kernel mode中才能执行。此时应用程序需要借助“中断”机制来提升权限。</p>
+<p>最后值得注意的是，xv6将kernel的指令和数据加载到了每一个进程的地址空间中。这样设计的用意是当应用程序需要使用某些kernel的功能时，就不需要额外执行一次切换分页表的操作，从而节省了CPU时间。尽管如此，应用程序并不能直接调用kernel中的函数。这是因为应用程序通常运行在user mode下，而kernel中的函数必须在权限等级更高的kernel mode中才能执行。此时应用程序需要借助“中断”机制来提升权限。</p>
 <hr>
 <h4>参考</h4>
 <ol>
