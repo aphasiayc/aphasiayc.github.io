@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+            <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <title>xv6: system initialization</title>
+
+        <!-- Bootstrap Core CSS -->
+        <link href="/theme/css/bootstrap.min.css" rel="stylesheet">
+
+        <!-- Custom CSS -->
+        <link href="/theme/css/clean-blog.min.css" rel="stylesheet">
+
+        <!-- Code highlight color scheme -->
+            <link href="/theme/css/code_blocks/darkly.css" rel="stylesheet">
+
+
+        <!-- Custom Fonts -->
+        <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+        <link href='https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+
+
+        <meta name="description" content="在boot流程结束，控制流进入main函数的时候，只有唯一的Bootstrap Processor（BSP）在工作，使用entrypgdir作为分页表，可以操作的物理地址空间是[0, 4...">
+
+        <meta name="author" content="aphasiayc">
+
+
+	                <meta property="og:locale" content="">
+		<meta property="og:site_name" content="Notes">
+
+	<meta property="og:type" content="article">
+            <meta property="article:author" content="/author/aphasiayc.html">
+	<meta property="og:url" content="/2019/xv6-system-initialization.html">
+	<meta property="og:title" content="xv6: system initialization">
+	<meta property="article:published_time" content="2019-05-29 18:21:00+08:00">
+            <meta property="og:description" content="在boot流程结束，控制流进入main函数的时候，只有唯一的Bootstrap Processor（BSP）在工作，使用entrypgdir作为分页表，可以操作的物理地址空间是[0, 4...">
+
+            <meta property="og:image" content="/theme/images/post-bg.jpg">
+</head>
+
+<body class="article-xv6-system-initialization">
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+        <div class="container-fluid">
+            <!-- Brand and toggle get grouped for better mobile display -->
+            <div class="navbar-header page-scroll">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">Notes</a>
+            </div>
+
+            <!-- Collect the nav links, forms, and other content for toggling -->
+            <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                <ul class="nav navbar-nav navbar-right">
+
+                </ul>
+            </div>
+            <!-- /.navbar-collapse -->
+        </div>
+        <!-- /.container -->
+    </nav>
+
+    <!-- Page Header -->
+        <header class="intro-header" style="background-image: url('/theme/images/post-bg.jpg')">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <div class="post-heading">
+                        <h1>xv6: system initialization</h1>
+                        <span class="meta">Posted by
+                                <a href="/author/aphasiayc.html">aphasiayc</a>
+                             on Wed 29 May 2019
+                        </span>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+    <!-- Post Content -->
+    <article>
+        <p>在boot流程结束，控制流进入<code>main</code>函数的时候，只有唯一的Bootstrap Processor（BSP）在工作，使用<code>entrypgdir</code>作为分页表，可以操作的物理地址空间是[0, 4 MB)。<code>main</code>将进行一系列的初始化操作，在它结束的时候，其他所有的Application Processor（AP）都已经启动，关于进程的抽象已经建立，系统的第一个进程<code>console</code>也已经在运行中。</p>
+<h3>4 MB过渡空间</h3>
+<p>main函数首先将单级分页、分页粒度为4 MB的<code>entrypgdir</code>切换到更为精细的支持二级分页、分页粒度为4 kB的<code>kpgdir</code>。</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">kinit1</span><span class="p">(</span><span class="n">end</span><span class="p">,</span> <span class="n">P2V</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="mi">1024</span><span class="o">*</span><span class="mi">1024</span><span class="p">));</span> <span class="c1">// phys page allocator</span>
+  <span class="n">kvmalloc</span><span class="p">();</span>      <span class="c1">// kernel page table</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>之前提过，<code>entrypgdir</code>分页大小为4 MB，包含两个有效的PTE，分别将虚拟地址的[0, 4 MB)和[2GB, 2GB + 4 MB)都映射到物理地址的[0, 4 MB)上。这4 MB也是系统目前可以操作的内存空间，其中包括了已经被boot和kernel占用的部分和<code>end</code>之后未占用两部分。<code>kinit1</code>将未占用部分（物理地址在<code>V2P(end)</code>到4 MB之间）切分成大小4 kB的小段，依次加入到<code>kmem</code>的<code>freelist</code>中。</p>
+<div class="highlight"><pre><span></span><span class="c1">// kalloc.c</span>
+<span class="kt">void</span> <span class="nf">kinit1</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">vstart</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="n">vend</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">initlock</span><span class="p">(</span><span class="o">&amp;</span><span class="n">kmem</span><span class="p">.</span><span class="n">lock</span><span class="p">,</span> <span class="s">&quot;kmem&quot;</span><span class="p">);</span>
+  <span class="n">kmem</span><span class="p">.</span><span class="n">use_lock</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="n">freerange</span><span class="p">(</span><span class="n">vstart</span><span class="p">,</span> <span class="n">vend</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>然后<code>kvmalloc</code>通过<code>setupkvm</code>设置一个包含了kernel地址空间分配的分页表<code>kpgdir</code>：</p>
+<div class="highlight"><pre><span></span><span class="c1">// vm.c</span>
+<span class="n">pde_t</span> <span class="o">*</span><span class="n">kpgdir</span><span class="p">;</span>  <span class="c1">// for use in scheduler()</span>
+
+<span class="kt">void</span> <span class="nf">kvmalloc</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">kpgdir</span> <span class="o">=</span> <span class="n">setupkvm</span><span class="p">();</span>
+  <span class="n">switchkvm</span><span class="p">();</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>setupkvm</code>通过<code>kalloc</code>从<code>freelist</code>中申请若干大小为4 kB的分页，用来建立一个包括了kernel部分地址映射关系的分页表<code>kpgdir</code>。最后通过<code>switchkvm</code>将<code>kpgdir</code>载入%cr3替换<code>entrypgdir</code>：</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">switchkvm</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">lcr3</span><span class="p">(</span><span class="n">V2P</span><span class="p">(</span><span class="n">kpgdir</span><span class="p">));</span>   <span class="c1">// switch to the kernel page table</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>kpgdir</code>可以覆盖[0， 4 GB)的虚拟地址空间，但由于它使用了二级分页，本身只占用两个4 KB的分页（一页PDT，一页覆盖虚拟地址[2 GB, 2 GB + 4 MB)的空间）。注意此时由于<code>freelist</code>的限制，系统可操作的空间依旧在4 MB之下。</p>
+<h3>初始化硬件设备</h3>
+<p>至此为止，只有BSP在工作。<code>main</code>接下来的工作是初始化其他设备，包括各种与中断相关的设置、文件系统、硬盘等。其中<code>seginit</code>更新了SDT。</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">mpinit</span><span class="p">();</span>        <span class="c1">// detect other processors</span>
+  <span class="n">lapicinit</span><span class="p">();</span>     <span class="c1">// interrupt controller</span>
+  <span class="n">seginit</span><span class="p">();</span>       <span class="c1">// segment descriptors</span>
+  <span class="n">cprintf</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">cpu%d: starting xv6</span><span class="se">\n\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">cpunum</span><span class="p">());</span>
+  <span class="n">picinit</span><span class="p">();</span>       <span class="c1">// another interrupt controller</span>
+  <span class="n">ioapicinit</span><span class="p">();</span>    <span class="c1">// another interrupt controller</span>
+  <span class="n">consoleinit</span><span class="p">();</span>   <span class="c1">// console hardware</span>
+  <span class="n">uartinit</span><span class="p">();</span>      <span class="c1">// serial port</span>
+  <span class="n">pinit</span><span class="p">();</span>         <span class="c1">// process table</span>
+  <span class="n">tvinit</span><span class="p">();</span>        <span class="c1">// trap vectors</span>
+  <span class="n">binit</span><span class="p">();</span>         <span class="c1">// buffer cache</span>
+  <span class="n">fileinit</span><span class="p">();</span>      <span class="c1">// file table</span>
+  <span class="n">ideinit</span><span class="p">();</span>       <span class="c1">// disk</span>
+  <span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="n">ismp</span><span class="p">)</span>
+    <span class="n">timerinit</span><span class="p">();</span>   <span class="c1">// uniprocessor timer</span>
+  <span class="n">startothers</span><span class="p">();</span>   <span class="c1">// start other processors</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>startothers</code>启动其他处理器。此后BSP和AP将进入不同的执行路径。</p>
+<div class="highlight"><pre><span></span><span class="k">static</span> <span class="kt">void</span> <span class="nf">startothers</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">code</span> <span class="o">=</span> <span class="n">P2V</span><span class="p">(</span><span class="mh">0x7000</span><span class="p">);</span>
+  <span class="n">memmove</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">_binary_entryother_start</span><span class="p">,</span> <span class="p">(</span><span class="n">uint</span><span class="p">)</span><span class="n">_binary_entryother_size</span><span class="p">);</span>
+  <span class="p">...</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">c</span> <span class="o">=</span> <span class="n">cpus</span><span class="p">;</span> <span class="n">c</span> <span class="o">&lt;</span> <span class="n">cpus</span><span class="o">+</span><span class="n">ncpu</span><span class="p">;</span> <span class="n">c</span><span class="o">++</span><span class="p">){</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">c</span> <span class="o">==</span> <span class="n">cpus</span><span class="o">+</span><span class="n">cpunum</span><span class="p">())</span>  <span class="c1">// We&#39;ve started already.</span>
+      <span class="k">continue</span><span class="p">;</span>
+
+    <span class="n">stack</span> <span class="o">=</span> <span class="n">kalloc</span><span class="p">();</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">void</span><span class="o">**</span><span class="p">)(</span><span class="n">code</span><span class="o">-</span><span class="mi">4</span><span class="p">)</span> <span class="o">=</span> <span class="n">stack</span> <span class="o">+</span> <span class="n">KSTACKSIZE</span><span class="p">;</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">void</span><span class="o">**</span><span class="p">)(</span><span class="n">code</span><span class="o">-</span><span class="mi">8</span><span class="p">)</span> <span class="o">=</span> <span class="n">mpenter</span><span class="p">;</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">int</span><span class="o">**</span><span class="p">)(</span><span class="n">code</span><span class="o">-</span><span class="mi">12</span><span class="p">)</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span> <span class="n">V2P</span><span class="p">(</span><span class="n">entrypgdir</span><span class="p">);</span>
+
+    <span class="n">lapicstartap</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">apicid</span><span class="p">,</span> <span class="n">V2P</span><span class="p">(</span><span class="n">code</span><span class="p">));</span>
+
+    <span class="k">while</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">started</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>     <span class="c1">// wait for cpu to finish mpmain()</span>
+      <span class="p">;</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>BSP的路径是执行<code>startothers</code>。它首先指定了一个内存地址<code>code</code>，<code>code</code>处于<code>bootloader</code>之下的地址段，此前不被占用。然后将AP的启动程序<code>entryother</code>的地址写入<code>code</code>。此外<code>startothers</code>为每个AP申请一个分页作为启动时所用的栈，设置启动时所用的分页表（AP在启动之初只能操作物理地址，所以此处用<code>entrypgdir</code>）。完成准备工作后，BSP通过中断向AP发出启动信号，然后自旋等待直至收到AP启动完成的信号之后，再继续启动下一个AP。</p>
+<h3>其他处理器的启动流程</h3>
+<p>AP的路径是接收启动信号，根据<code>startothers</code>为它设置的环境，执行<code>entryother</code>，过程与BSP的启动过程类似：加载<code>gdtdesc</code>从real mode切换到protected mode，使用<code>entrypgdir</code>作为分页表启动分页，根据<code>startothers</code>预设的栈设置%esp，使用这个栈来调用C函数<code>mpenter</code>。</p>
+<div class="highlight"><pre><span></span><span class="k">static</span> <span class="kt">void</span> <span class="nf">mpenter</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="n">switchkvm</span><span class="p">();</span>
+  <span class="n">seginit</span><span class="p">();</span>
+  <span class="n">lapicinit</span><span class="p">();</span>
+  <span class="n">mpmain</span><span class="p">();</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>mpenter</code>通过<code>switchkvm</code>将分页表从<code>entrypgdir</code>切换到<code>kpgdir</code>，<code>seginit</code>加载完整的SDT，并最终进入<code>mpmain</code>：</p>
+<div class="highlight"><pre><span></span><span class="nt">static</span> <span class="nt">void</span> <span class="nt">mpmain</span><span class="o">(</span><span class="nt">void</span><span class="o">)</span> <span class="p">{</span>
+  <span class="err">cprintf(&quot;cpu%</span><span class="n">d</span><span class="p">:</span> <span class="n">starting</span><span class="err">\</span><span class="n">n</span><span class="err">&quot;</span><span class="p">,</span> <span class="nf">cpunum</span><span class="p">());</span>
+  <span class="err">idtinit()</span><span class="p">;</span>       <span class="err">//</span> <span class="err">load</span> <span class="err">idt</span> <span class="err">register</span>
+  <span class="err">xchg(&amp;cpu-&gt;started,</span> <span class="err">1)</span><span class="p">;</span> <span class="err">//</span> <span class="err">tell</span> <span class="err">startothers()</span> <span class="err">we&#39;re</span> <span class="err">up</span>
+  <span class="err">scheduler()</span><span class="p">;</span>     <span class="err">//</span> <span class="err">start</span> <span class="err">running</span> <span class="err">processes</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>mpmain</code>结束的时候调用<code>scheduler</code>进入调度线程。此时进程表中尚没有任何进程，因此在BSP执行<code>startothers</code>完毕的时刻，所有AP都在各自的调度线程中循环，等待<code>RUNNABLE</code>的进程出现。</p>
+<h3>拓展地址空间</h3>
+<p><code>startothers</code>启动所有AP之后，初始化已经接近完成，除了一点：至此系统只能操作4 MB的地址空间。BSP接下来调用<code>kinit2</code>：</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">kinit2</span><span class="p">(</span><span class="n">P2V</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="mi">1024</span><span class="o">*</span><span class="mi">1024</span><span class="p">),</span> <span class="n">P2V</span><span class="p">(</span><span class="n">PHYSTOP</span><span class="p">));</span> <span class="c1">// must come after startothers()</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>kinit2</code>将物理地址4 MB之后，<code>PHYSOTP</code>之前的内存加入到<code>freelist</code>中，并启动<code>freelist</code>的锁。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">kinit2</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">vstart</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="n">vend</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">freerange</span><span class="p">(</span><span class="n">vstart</span><span class="p">,</span> <span class="n">vend</span><span class="p">);</span>
+  <span class="n">kmem</span><span class="p">.</span><span class="n">use_lock</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>AP在启动过程中所能操作的地址空间限制在4 MB之下，所以<code>kinit2</code>必须在所有AP都启动之后执行。</p>
+<h3>第一个用户进程</h3>
+<p>结下来BSP的工作是创建第一个进程，载入用户程序<code>initcode</code>。</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">userinit</span><span class="p">();</span>      <span class="c1">// first user process</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>通常运行用户程序的流程是先从当前进程<code>fork</code>出一个新进程，然后在新进程中<code>exec</code>运行指定程序。但此时系统中尚没有进程，无从<code>fork</code>。所以此处需要一个特殊的函数<code>userinit</code>来手动创建进程并载入用户程序：</p>
+<ol>
+<li>首先<code>allocproc</code>创建进程。具体来说<code>allocproc</code>为新进程申请分页作为kernel stack。在kernel stack上为trap frame预留位置，设置从中断返回之后的指令位置为<code>trapret</code>，为context留出位置并设置<code>context-&gt;eip</code>为<code>forkret</code>。</li>
+<li><code>setupkvm</code>创建进程私有的分页表，并且设置kernel部分的地址空间</li>
+<li><code>inituvm</code>载入用户程序<code>initcode</code>，设置user部分的地址空间</li>
+<li>手工设置trap frame</li>
+<li>将进程状态设置为<code>RUNNABLE</code></li>
+</ol>
+<div class="highlight"><pre><span></span><span class="kt">void</span>
+<span class="nf">userinit</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">p</span><span class="p">;</span>
+  <span class="k">extern</span> <span class="kt">char</span> <span class="n">_binary_initcode_start</span><span class="p">[],</span> <span class="n">_binary_initcode_size</span><span class="p">[];</span>
+
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+
+  <span class="n">p</span> <span class="o">=</span> <span class="n">allocproc</span><span class="p">();</span>
+  <span class="n">initproc</span> <span class="o">=</span> <span class="n">p</span><span class="p">;</span>
+  <span class="k">if</span><span class="p">((</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">pgdir</span> <span class="o">=</span> <span class="n">setupkvm</span><span class="p">())</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;userinit: out of memory?&quot;</span><span class="p">);</span>
+  <span class="n">inituvm</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">pgdir</span><span class="p">,</span> <span class="n">_binary_initcode_start</span><span class="p">,</span> <span class="p">(</span><span class="kt">int</span><span class="p">)</span><span class="n">_binary_initcode_size</span><span class="p">);</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">sz</span> <span class="o">=</span> <span class="n">PGSIZE</span><span class="p">;</span>
+  <span class="n">memset</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="p">));</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">cs</span> <span class="o">=</span> <span class="p">(</span><span class="n">SEG_UCODE</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">)</span> <span class="o">|</span> <span class="n">DPL_USER</span><span class="p">;</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">ds</span> <span class="o">=</span> <span class="p">(</span><span class="n">SEG_UDATA</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">)</span> <span class="o">|</span> <span class="n">DPL_USER</span><span class="p">;</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">es</span> <span class="o">=</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">ds</span><span class="p">;</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">ss</span> <span class="o">=</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">ds</span><span class="p">;</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">eflags</span> <span class="o">=</span> <span class="n">FL_IF</span><span class="p">;</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">esp</span> <span class="o">=</span> <span class="n">PGSIZE</span><span class="p">;</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">tf</span><span class="o">-&gt;</span><span class="n">eip</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>  <span class="c1">// beginning of initcode.S</span>
+
+  <span class="n">safestrcpy</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">name</span><span class="p">,</span> <span class="s">&quot;initcode&quot;</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">name</span><span class="p">));</span>
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">cwd</span> <span class="o">=</span> <span class="n">namei</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">);</span>
+
+  <span class="n">p</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">=</span> <span class="n">RUNNABLE</span><span class="p">;</span>
+
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>此时AP在各自的<code>scheduler</code>中等待，当它们发现这个进程，并且监测到它处于<code>RUNNABLE</code>状态时，其中一个AP会通过context switch将这个进程载入处理器执行。</p>
+<h3>第一个用户程序</h3>
+<p><code>initcode</code>是一段很短的指令，它做的工作是发起中断，执行系统函数<code>exec</code>：</p>
+<div class="highlight"><pre><span></span><span class="o">//</span> <span class="nv">initcode</span>.<span class="nv">S</span>
+# <span class="k">exec</span><span class="ss">(</span><span class="nv">init</span>, <span class="nv">argv</span><span class="ss">)</span>
+.<span class="nv">globl</span> <span class="nv">start</span>
+<span class="nv">start</span>:
+  <span class="nv">pushl</span> <span class="mh">$a</span><span class="nv">rgv</span>
+  <span class="nv">pushl</span> $<span class="nv">init</span>
+  <span class="nv">pushl</span> <span class="mh">$0</span>  <span class="o">//</span> <span class="nv">where</span> <span class="nv">caller</span> <span class="nv">pc</span> <span class="nv">would</span> <span class="nv">be</span>
+  <span class="nv">movl</span> $<span class="nv">SYS_exec</span>, <span class="o">%</span><span class="nv">eax</span>
+  <span class="nv">int</span> $<span class="nv">T_SYSCALL</span>
+
+# <span class="nv">char</span> <span class="nv">init</span>[] <span class="o">=</span> <span class="s2">&quot;</span><span class="s">/init\0</span><span class="s2">&quot;</span><span class="c1">;</span>
+<span class="nv">init</span>:
+  .<span class="nv">string</span> <span class="s2">&quot;</span><span class="s">/init\0</span><span class="s2">&quot;</span>
+...
+</pre></div>
+
+
+<p><code>exec</code>指向的是一个名为<code>init</code>的用户程序。<code>init</code>启动<code>console</code>，创建最基本的IO：<code>stdin</code>、<code>stdout</code>和<code>stderr</code>。然后进入<code>fork</code>新进程，运行shell，等待用户输入命令，待shell结束之后进入新的循环。</p>
+<div class="highlight"><pre><span></span><span class="c1">// init.c</span>
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">pid</span><span class="p">,</span> <span class="n">wpid</span><span class="p">;</span>
+
+  <span class="k">if</span><span class="p">(</span><span class="n">open</span><span class="p">(</span><span class="s">&quot;console&quot;</span><span class="p">,</span> <span class="n">O_RDWR</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">){</span>
+    <span class="n">mknod</span><span class="p">(</span><span class="s">&quot;console&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+    <span class="n">open</span><span class="p">(</span><span class="s">&quot;console&quot;</span><span class="p">,</span> <span class="n">O_RDWR</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="n">dup</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>  <span class="c1">// stdout</span>
+  <span class="n">dup</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>  <span class="c1">// stderr</span>
+
+  <span class="k">for</span><span class="p">(;;){</span>
+    <span class="n">printf</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&quot;init: starting sh</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+    <span class="n">pid</span> <span class="o">=</span> <span class="n">fork</span><span class="p">();</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">pid</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">){</span>
+      <span class="n">printf</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&quot;init: fork failed</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+      <span class="n">exit</span><span class="p">();</span>
+    <span class="p">}</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">pid</span> <span class="o">==</span> <span class="mi">0</span><span class="p">){</span>
+      <span class="n">exec</span><span class="p">(</span><span class="s">&quot;sh&quot;</span><span class="p">,</span> <span class="n">argv</span><span class="p">);</span>
+      <span class="n">printf</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&quot;init: exec sh failed</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+      <span class="n">exit</span><span class="p">();</span>
+    <span class="p">}</span>
+    <span class="k">while</span><span class="p">((</span><span class="n">wpid</span><span class="o">=</span><span class="n">wait</span><span class="p">())</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="n">wpid</span> <span class="o">!=</span> <span class="n">pid</span><span class="p">)</span>
+      <span class="n">printf</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&quot;zombie!</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<h3>收尾</h3>
+<p>BSP执行<code>main</code>函数的最后一步是启动BSP自己的调度线程：</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">mpmain</span><span class="p">();</span>        <span class="c1">// finish this processor&#39;s setup</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>关于调度线程<code>scheduler</code>还有两个细节：</p>
+<ul>
+<li>所有CPU上的<code>scheduler</code>使用相同的地址空间<code>kpgdir</code>。BSP在<code>main</code>函数一开始的时候通过<code>kvmalloc</code>创建并载入了<code>kpgdir</code>，而AP是在<code>mpenter</code>中通过<code>switchkvm</code>载入。于是它们可以操作同一个进程表。</li>
+<li>但各个CPU上的<code>scheduler</code>使用各自独立的栈。BSP使用的栈在boot阶段由<code>entry</code>指定，AP所使用的栈由BSP在执行<code>startothers</code>时设定。</li>
+</ul>
+<p>以上是<code>scheduler</code>被称为“线程”的原因。</p>
+<hr>
+<h4>参考</h4>
+<ol>
+<li><a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture07-kernel-init/lecture07-kernel-init.pdf">UCI course on kernel init</a></li>
+<li><a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf">xv6 Book</a></li>
+</ol>
+    </article>
+
+
+    <hr>
+
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <ul class="list-inline text-center">
+                            <li>
+                                <a href="https://github.com/aphasiayc">
+                                    <span class="fa-stack fa-lg">
+                                        <i class="fa fa-circle fa-stack-2x"></i>
+                                        <i class="fa fa-github fa-stack-1x fa-inverse"></i>
+                                    </span>
+                                </a>
+                            </li>
+                    </ul>
+<p class="copyright text-muted">
+    Blog powered by <a href="http://getpelican.com">Pelican</a>,
+    which takes great advantage of <a href="http://python.org">Python</a>. <br />        &copy;  aphasiayc
+</p>                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="/theme/js/jquery.min.js"></script>
+
+    <!-- Bootstrap Core JavaScript -->
+    <script src="/theme/js/bootstrap.min.js"></script>
+
+        <!-- Custom Theme JavaScript -->
+        <script src="/theme/js/clean-blog.min.js"></script>
+
+</body>
+
+</html>
