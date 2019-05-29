@@ -80,13 +80,27 @@
         <div class="row">
             <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
         <div class="post-preview">
+            <a href="/2019/xv6-synchronization.html" rel="bookmark" title="Permalink to xv6: synchronization">
+                <h2 class="post-title">
+                    xv6: synchronization
+                </h2>
+            </a>
+                <p class="article-summary">
+                    xv6其实并不支持现代操作系统中的“多线程”。但由于kernel部分的地址空间是各个进程共享的，kernel本身还是需要处理进程之间同步的问题。运行在多处理器系统上，各个进程可能同时操作一个内存地址；即使在单处理器的情况下，在中断机制开启，允许切换进程时，也可能发生多个进程...
+                </p>
+            <p class="post-meta">Posted by
+                    <a href="/author/aphasiayc.html">aphasiayc</a>
+                 on Wed 29 May 2019
+            </p>
+        </div>
+        <div class="post-preview">
             <a href="/2019/xv6-context-switch.html" rel="bookmark" title="Permalink to xv6: context switch">
                 <h2 class="post-title">
                     xv6: context switch
                 </h2>
             </a>
                 <p class="article-summary">
-                    通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源...
+                    通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。...
                 </p>
             <p class="post-meta">Posted by
                     <a href="/author/aphasiayc.html">aphasiayc</a>

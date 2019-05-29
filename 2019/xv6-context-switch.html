@@ -33,7 +33,7 @@
 
 
 
-        <meta name="description" content="通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源...">
+        <meta name="description" content="通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。...">
 
         <meta name="author" content="aphasiayc">
 
@@ -46,7 +46,7 @@
 	<meta property="og:url" content="/2019/xv6-context-switch.html">
 	<meta property="og:title" content="xv6: context switch">
 	<meta property="article:published_time" content="2019-05-29 16:20:00+08:00">
-            <meta property="og:description" content="通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源...">
+            <meta property="og:description" content="通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。...">
 
             <meta property="og:image" content="/theme/images/post-bg.jpg">
 </head>
@@ -102,7 +102,7 @@
             <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
     <!-- Post Content -->
     <article>
-        <p>通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。另外kernel在当前进程需要进行I/O等可能引起阻塞的操作时，可以选择将它挂起转而执行其他的进程，以避免在等待I/O的过程中浪费过多的CPU时间。</p>
+        <p>通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。另外kernel在当前进程需要进行I/O等可能引起阻塞的操作时，可以选择将它挂起转而执行其他的进程，以避免在等待的过程中浪费过多的CPU时间。</p>
 <h2>基础设施</h2>
 <h3>per-CPU state</h3>
 <p>xv6定义了<code>cpu</code>结构体：</p>
@@ -198,7 +198,7 @@
 </pre></div>
 
 
-<p>如果追踪各个寄存器的状态的话，根据调用规则，%eax、%ecx、%edx在进入<code>swtch</code>函数之前压栈，%eip在执行<code>call</code>指令时压栈，%ebp、%ebx、%esi、%edi在<code>swtch</code>函数中通过<code>pushl</code>指令压栈（注意它们的顺序，它们和%eip共同构成了<code>context</code>结构体），最后%esp在两个进程的kernel stack之间切换。</p>
+<p>如果追踪各个寄存器的状态的话，根据调用规则，%eax、%ecx、%edx在进入<code>swtch</code>函数之前压栈，%eip在执行<code>call</code>指令时压栈，%ebp、%ebx、%esi、%edi在<code>swtch</code>函数中通过<code>pushl</code>指令压栈（注意顺序，它们和%eip共同构成了<code>context</code>结构体），最后%esp在两个进程的kernel stack之间切换。</p>
 <h3>timer interrupt</h3>
 <p>xv6使用强制性的调度机制，定时地在进程间切换，以保证各个进程都有被执行的机会。主板上的计时器定时发出中断信号<code>IRQ_TIMER</code>。在IDT中，所有有外部I/O设备发来的interrupt信号都被对应到序号<code>IRQ0</code>（数值32）之后的gate上。于是处理器经由序号为<code>IRQ0+IRQ_TIMER</code>的gate进入<code>trap</code>函数：</p>
 <div class="highlight"><pre><span></span><span class="c1">// trap.c</span>
@@ -270,10 +270,7 @@
 
 <p>此时进程<code>p</code>有两种情况，一种是处于上一次从CPU中切出的状态中，它的执行流程处于<code>sched</code>函数中<code>swtch</code>结束之后的位置。它将逆着之前收到timer interrupt之后的处理流程运行，从<code>sched</code>返回到<code>yield</code>中，释放<code>ptable</code>锁，然后返回<code>trap</code>函数中，然后进入<code>trapret</code>过程从中断中返回。另一种情况<code>p</code>是新创建的进程（通过<code>fork</code>或者<code>userinit</code>），它将进入<code>forkret</code>，释放<code>ptable</code>锁，最后同样进入<code>trapret</code>过程。</p>
 <p>一段时间之后，当进程<code>p</code>再次收到timer interrupt信号，它将再次通过<code>swtch</code>切换到CPU的<code>scheduler</code>中。此时<code>scheduler</code>位于<code>swtch</code>结束的位置，接下来它将释放<code>ptable</code>锁然后进入下一个循环，寻找新的<code>RUNNABLE</code>进程。</p>
-<p>总结来说，在两个用户进程之间切换时需要CPU的调度线程作为中介，进程切换的过程如下图所示。</p>
-<p><img alt="switch between two processes" src="/2019/images/switch.001.png"></p>
-<p>xv6的调度器顺序遍历进程表，找到一个可执行进程就进行切换。这难以保证公平，也很难实现优先级控制等功能。现实中的调度器通常会支持更为复杂的调度策略。</p>
-<p>另外在进程切换的过程中还有若干值得注意的细节：</p>
+<p>在进程切换的过程中还有若干值得注意的细节：</p>
 <ul>
 <li><code>scheduler</code>在每次进入循环就对<code>ptable</code>加锁，直至离开才解锁，所以在<code>scheduler</code>中绝大部分时间<code>ptable</code>都处于锁定状态。每次加锁解锁是为了避免在进程表中找不到<code>RUNNABLE</code>进程时，各个CPU的调度线程陷入死锁的状态。</li>
 <li>通常对一个锁来说，进程在加锁的同时也应该负责解锁的操作。但在进程切换过程中的<code>ptable</code>锁是由切出进程加锁，由切入进程解锁。其中一个例子就是<code>forkret</code>。<code>forkret</code>是一个新建进程自创建完毕之后开始运行的第一步，而它的第一个操作就是对<code>ptable</code>解锁。这看似奇怪的操作是因为进入<code>forkret</code>函数的路径是由<code>scheduler</code>进行context switch，而<code>scheduler</code>在<code>swtch</code>之前对<code>ptable</code>加了锁。</li>
@@ -287,6 +284,9 @@
 </pre></div>
 
 
+<p>总结来说，在两个用户进程之间切换时需要CPU的调度线程作为中介，进程切换的过程如下图所示：</p>
+<p><img alt="switch between two processes" src="/2019/images/switch.001.png"></p>
+<p>xv6的调度规则是顺序遍历进程表，找到一个可执行进程就进行切换。这难以保证公平，也很难实现优先级控制等功能。现实中的调度器通常会支持更为复杂的调度策略。</p>
 <hr>
 <h4>参考</h4>
 <ol>

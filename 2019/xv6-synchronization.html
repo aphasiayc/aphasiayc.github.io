@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+            <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <title>xv6: synchronization</title>
+
+        <!-- Bootstrap Core CSS -->
+        <link href="/theme/css/bootstrap.min.css" rel="stylesheet">
+
+        <!-- Custom CSS -->
+        <link href="/theme/css/clean-blog.min.css" rel="stylesheet">
+
+        <!-- Code highlight color scheme -->
+            <link href="/theme/css/code_blocks/darkly.css" rel="stylesheet">
+
+
+        <!-- Custom Fonts -->
+        <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+        <link href='https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+
+
+        <meta name="description" content="xv6其实并不支持现代操作系统中的“多线程”。但由于kernel部分的地址空间是各个进程共享的，kernel本身还是需要处理进程之间同步的问题。运行在多处理器系统上，各个进程可能同时操作一个内存地址；即使在单处理器的情况下，在中断机制开启，允许切换进程时，也可能发生多个进程...">
+
+        <meta name="author" content="aphasiayc">
+
+
+	                <meta property="og:locale" content="">
+		<meta property="og:site_name" content="Notes">
+
+	<meta property="og:type" content="article">
+            <meta property="article:author" content="/author/aphasiayc.html">
+	<meta property="og:url" content="/2019/xv6-synchronization.html">
+	<meta property="og:title" content="xv6: synchronization">
+	<meta property="article:published_time" content="2019-05-29 17:34:00+08:00">
+            <meta property="og:description" content="xv6其实并不支持现代操作系统中的“多线程”。但由于kernel部分的地址空间是各个进程共享的，kernel本身还是需要处理进程之间同步的问题。运行在多处理器系统上，各个进程可能同时操作一个内存地址；即使在单处理器的情况下，在中断机制开启，允许切换进程时，也可能发生多个进程...">
+
+            <meta property="og:image" content="/theme/images/post-bg.jpg">
+</head>
+
+<body class="article-xv6-synchronization">
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+        <div class="container-fluid">
+            <!-- Brand and toggle get grouped for better mobile display -->
+            <div class="navbar-header page-scroll">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">Notes</a>
+            </div>
+
+            <!-- Collect the nav links, forms, and other content for toggling -->
+            <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                <ul class="nav navbar-nav navbar-right">
+
+                </ul>
+            </div>
+            <!-- /.navbar-collapse -->
+        </div>
+        <!-- /.container -->
+    </nav>
+
+    <!-- Page Header -->
+        <header class="intro-header" style="background-image: url('/theme/images/post-bg.jpg')">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <div class="post-heading">
+                        <h1>xv6: synchronization</h1>
+                        <span class="meta">Posted by
+                                <a href="/author/aphasiayc.html">aphasiayc</a>
+                             on Wed 29 May 2019
+                        </span>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+    <!-- Post Content -->
+    <article>
+        <p>xv6其实并不支持现代操作系统中的“多线程”。但由于kernel部分的地址空间是各个进程共享的，kernel本身还是需要处理进程之间同步的问题。运行在多处理器系统上，各个进程可能同时操作一个内存地址；即使在单处理器的情况下，在中断机制开启，允许切换进程时，也可能发生多个进程交替操作某个内存地址的情况。为此xv6实现了两种基本的进程间同步的模型：mutual exclusion和producer/comsumer。</p>
+<h2>mutual exclusion</h2>
+<h3>自旋锁</h3>
+<p>自旋锁是实现mutual exclusion最简单的一种方法。xv6中定义的<code>spinlock</code>包括了一个关键的标志位<code>locked</code>：</p>
+<div class="highlight"><pre><span></span><span class="k">struct</span> <span class="n">spinlock</span> <span class="p">{</span>
+  <span class="n">uint</span> <span class="n">locked</span><span class="p">;</span>       <span class="c1">// Is the lock held?</span>
+  <span class="p">...</span>
+<span class="p">};</span>
+</pre></div>
+
+
+<p>加锁的过程<code>acquire</code>：</p>
+<div class="highlight"><pre><span></span><span class="c1">// spinlock.c</span>
+<span class="kt">void</span> <span class="nf">acquire</span><span class="p">(</span><span class="k">struct</span> <span class="n">spinlock</span> <span class="o">*</span><span class="n">lk</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">pushcli</span><span class="p">();</span> <span class="c1">// disable interrupts to avoid deadlock.</span>
+  <span class="p">...</span>
+  <span class="k">while</span><span class="p">(</span><span class="n">xchg</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lk</span><span class="o">-&gt;</span><span class="n">locked</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>   <span class="c1">// The xchg is atomic.</span>
+    <span class="p">;</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>其中<code>xchg</code>是一个原子操作，它原子性地将数值写入某个内存位置，并返回此位置原先的值。<code>acquire</code>首先暂时禁止中断机制，然后通过<code>xchg</code>将<code>locked</code>标志位置1。<code>xchg</code>如果返回值为1，表示已经有其他进程占用了这个锁，当前进程加锁失败，于是进入不断重试直至成功为止的流程。相反如果<code>xchg</code>返回0，则表示当前进程已经成功获得了这个锁，可以愉快的继续执行下面的指令。</p>
+<p>在竞争激烈的情况下，获取自旋锁的过程中CPU时间可能都消耗在不断自旋等待之中，效率比较低下。</p>
+<p>与<code>acquire</code>镜像对称，<code>release</code>首先将<code>locked</code>标志位置零，然后恢复中断机制。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">release</span><span class="p">(</span><span class="k">struct</span> <span class="n">spinlock</span> <span class="o">*</span><span class="n">lk</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="n">lk</span><span class="o">-&gt;</span><span class="n">locked</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="n">popcli</span><span class="p">();</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>xv6在加锁之前首先会通过<code>pushcli</code>来禁止中断，相应在解锁之后通过<code>popcli</code>重启中断。<code>pushcli</code>和<code>popcli</code>都是对当前CPU的操作，它们除了调用<code>cli</code>和<code>sti</code>来操作%eflags中的<code>FL_IF</code>标志位之外，还记录了操作的次数。只有当<code>pushcli</code>和<code>popcli</code>的次数相等时，中断才会被开启。所以当程序中有两个锁处于锁定状态，只释放其中的一个，中断不会被开启，于是也不会发生进程切换。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">pushcli</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">eflags</span><span class="p">;</span>
+
+  <span class="n">eflags</span> <span class="o">=</span> <span class="n">readeflags</span><span class="p">();</span>
+  <span class="n">cli</span><span class="p">();</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ncli</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">intena</span> <span class="o">=</span> <span class="n">eflags</span> <span class="o">&amp;</span> <span class="n">FL_IF</span><span class="p">;</span>
+  <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ncli</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">void</span>
+<span class="nf">popcli</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">readeflags</span><span class="p">()</span><span class="o">&amp;</span><span class="n">FL_IF</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;popcli - interruptible&quot;</span><span class="p">);</span>
+  <span class="k">if</span><span class="p">(</span><span class="o">--</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ncli</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;popcli&quot;</span><span class="p">);</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ncli</span> <span class="o">==</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">intena</span><span class="p">)</span>
+    <span class="n">sti</span><span class="p">();</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<h2>producer/comsumer</h2>
+<h3>sleep和wakeup</h3>
+<p>除了自旋锁处理的mutual exclusion之外，另一种需要进程间协调的关系是producer/consumer(例如pipe左右的两个进程)。这种关系中，consumer必须等producer完成（部分）工作之后才有事可做，否则处于空转消耗CPU时间的状态。xv6中用<code>sleep</code>和<code>wakeup</code>两个system call处理这个问题。<code>sleep</code>让进程进入休眠状态，让出CPU；<code>wakeup</code>通过进程结构体<code>proc</code>中的信号量<code>chan</code>唤醒休眠的进程。</p>
+<p><code>sleep</code>除了要求一个信号量<code>chan</code>之外，还要求进程持有一个锁<code>lk</code>。进入<code>sleep</code>之后，锁定<code>ptable</code>，释放其他的锁（与<code>sched</code>的要求一致）。然后设置<code>chan</code>，将进程的状态设置为<code>SLEEPING</code>，然后进入<code>sched</code>，让出CPU去运行另一个进程。<code>ptable</code>锁将由切换后的进程负责释放。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">sleep</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">chan</span><span class="p">,</span> <span class="k">struct</span> <span class="n">spinlock</span> <span class="o">*</span><span class="n">lk</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">proc</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;sleep&quot;</span><span class="p">);</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">lk</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;sleep without lk&quot;</span><span class="p">);</span>
+
+  <span class="k">if</span><span class="p">(</span><span class="n">lk</span> <span class="o">!=</span> <span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">){</span>
+    <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+    <span class="n">release</span><span class="p">(</span><span class="n">lk</span><span class="p">);</span>
+  <span class="p">}</span>
+
+  <span class="n">proc</span><span class="o">-&gt;</span><span class="n">chan</span> <span class="o">=</span> <span class="n">chan</span><span class="p">;</span>
+  <span class="n">proc</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">=</span> <span class="n">SLEEPING</span><span class="p">;</span>
+  <span class="n">sched</span><span class="p">();</span>
+
+  <span class="n">proc</span><span class="o">-&gt;</span><span class="n">chan</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">lk</span> <span class="o">!=</span> <span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">){</span>
+    <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+    <span class="n">acquire</span><span class="p">(</span><span class="n">lk</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>walkup</code>首先锁定<code>ptable</code>。然后遍历<code>ptable</code>，找到所有匹配信号量<code>chan</code>的休眠状态的进程，将它们的状态改为<code>RUNNABLE</code>。最后释放<code>ptable</code>锁。被唤醒的进程将在未来某个时刻由<code>scheduler</code>载入CPU，最终进入<code>RUNNING</code>状态。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">wakeup</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">chan</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">p</span><span class="p">;</span>
+
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+
+  <span class="k">for</span><span class="p">(</span><span class="n">p</span> <span class="o">=</span> <span class="n">ptable</span><span class="p">.</span><span class="n">proc</span><span class="p">;</span> <span class="n">p</span> <span class="o">&lt;</span> <span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">proc</span><span class="p">[</span><span class="n">NPROC</span><span class="p">];</span> <span class="n">p</span><span class="o">++</span><span class="p">)</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">==</span> <span class="n">SLEEPING</span> <span class="o">&amp;&amp;</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">chan</span> <span class="o">==</span> <span class="n">chan</span><span class="p">)</span>
+      <span class="n">p</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">=</span> <span class="n">RUNNABLE</span><span class="p">;</span>
+
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<h3>一个栗子：send/receive</h3>
+<p><code>send</code>和<code>recv</code>是关于如何使用<code>sleep</code>和<code>wakeup</code>的例子。二者之间通过结构体<code>q</code>传递一个指针<code>ptr</code>。</p>
+<p><code>send</code>的流程是：</p>
+<ol>
+<li>首先对<code>q</code>加锁</li>
+<li>然后检查<code>q</code>中的<code>ptr</code>是否为空，如果为空，则将<code>p</code>写入。</li>
+<li>如果<code>ptr</code>不为空，说明<code>recv</code>还没有将之前的值取出，通道堵塞，<code>send</code>不能继续工作，所以通过<code>sleep</code>让它进入休眠。<code>sleep</code>将负责对<code>q</code>解锁，以便让<code>recv</code>可以工作。</li>
+<li><code>send</code>将处于<code>SLEEPING</code>状态，直至<code>recv</code>将信号取走，且将它的状态改为<code>RUNNABLE</code></li>
+<li>某个时刻<code>send</code>被重新载入CPU执行，它从<code>sleep</code>返回，并且返回的过程已经对<code>q</code>再次加锁，此时<code>send</code>可以将<code>p</code>写入</li>
+<li><code>wakeup</code>所有等待从<code>q</code>接收信号的进程</li>
+<li>最后对<code>q</code>解锁</li>
+</ol>
+<p><code>recv</code>的流程几乎与之对称。</p>
+<div class="highlight"><pre><span></span><span class="k">struct</span> <span class="n">q</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">spinlock</span> <span class="n">lock</span><span class="p">;</span>
+  <span class="kt">void</span><span class="o">*</span> <span class="n">ptr</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="kt">void</span><span class="o">*</span> <span class="nf">send</span><span class="p">(</span><span class="k">struct</span> <span class="n">q</span> <span class="o">*</span><span class="n">q</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="n">p</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">while</span><span class="p">(</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">ptr</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="n">q</span><span class="o">-&gt;</span><span class="n">ptr</span> <span class="o">=</span> <span class="n">p</span><span class="p">;</span>
+  <span class="n">wakeup</span><span class="p">(</span><span class="n">q</span><span class="p">);</span>
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kt">void</span><span class="o">*</span> <span class="nf">recv</span><span class="p">(</span><span class="k">struct</span> <span class="n">q</span> <span class="o">*</span><span class="n">q</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">void</span><span class="o">*</span><span class="n">p</span><span class="p">;</span>
+
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">while</span><span class="p">((</span><span class="n">p</span> <span class="o">=</span> <span class="n">q</span><span class="o">-&gt;</span><span class="n">ptr</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="n">q</span><span class="o">-&gt;</span><span class="n">ptr</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="n">wakeup</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">return</span> <span class="n">p</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>一个细节是<code>sleep</code>函数总是处于<code>while</code>循环之中，每当从<code>sleep</code>返回之后都要重新检查条件是否满足，以避免进程被意外唤醒。</p>
+<p>另一个细节是<code>q</code>为何需要包括一个锁。这是因为<code>while</code>验证条件和调用<code>sleep</code>是两个操作，如果在这两步之间发生进程切换的话，可能会发生<code>wakeup</code>在<code>sleep</code>之前执行的情况，这样当切换回原进程并最终进入休眠之后，将不能再被唤起。</p>
+<h3>一个更完整的栗子：pipe</h3>
+<p>管道是unix系统的经典设计。它是一种inter-process communication(IPC)机制，通过一个内存中的buffer在两个进程之间传递数据。</p>
+<p>xv6中<code>pipe</code>的定义：</p>
+<div class="highlight"><pre><span></span><span class="k">struct</span> <span class="n">pipe</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">spinlock</span> <span class="n">lock</span><span class="p">;</span>
+  <span class="kt">char</span> <span class="n">data</span><span class="p">[</span><span class="n">PIPESIZE</span><span class="p">];</span>
+  <span class="n">uint</span> <span class="n">nread</span><span class="p">;</span>     <span class="c1">// number of bytes read</span>
+  <span class="n">uint</span> <span class="n">nwrite</span><span class="p">;</span>    <span class="c1">// number of bytes written</span>
+  <span class="p">...</span>
+<span class="p">};</span>
+</pre></div>
+
+
+<p>管道连接的两个进程，一个负责写（<code>pipewrite</code>），另一个负责读（<code>piperead</code>），流程与<code>send</code>和<code>recv</code>非常接近（<code>send</code>和<code>recv</code>可以看成是buffer大小为0的管道）。</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="nf">pipewrite</span><span class="p">(</span><span class="k">struct</span> <span class="n">pipe</span> <span class="o">*</span><span class="n">p</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">,</span> <span class="kt">int</span> <span class="n">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">i</span><span class="p">;</span>
+
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">){</span>
+    <span class="k">while</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nwrite</span> <span class="o">==</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span> <span class="o">+</span> <span class="n">PIPESIZE</span><span class="p">){</span> 
+      <span class="p">...</span>
+      <span class="n">wakeup</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span><span class="p">);</span>
+      <span class="n">sleep</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nwrite</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="n">p</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">[</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nwrite</span><span class="o">++</span> <span class="o">%</span> <span class="n">PIPESIZE</span><span class="p">]</span> <span class="o">=</span> <span class="n">addr</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
+  <span class="p">}</span>
+  <span class="n">wakeup</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span><span class="p">);</span>
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">return</span> <span class="n">n</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">piperead</span><span class="p">(</span><span class="k">struct</span> <span class="n">pipe</span> <span class="o">*</span><span class="n">p</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">,</span> <span class="kt">int</span> <span class="n">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">i</span><span class="p">;</span>
+
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">while</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span> <span class="o">==</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">nwrite</span> <span class="o">&amp;&amp;</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">writeopen</span><span class="p">){</span>
+    <span class="p">...</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span> 
+  <span class="p">}</span>
+  <span class="k">for</span><span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">){</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span> <span class="o">==</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">nwrite</span><span class="p">)</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="n">addr</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">[</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nread</span><span class="o">++</span> <span class="o">%</span> <span class="n">PIPESIZE</span><span class="p">];</span>
+  <span class="p">}</span>
+  <span class="n">wakeup</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">nwrite</span><span class="p">);</span>
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">lock</span><span class="p">);</span>
+  <span class="k">return</span> <span class="n">i</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<hr>
+<h4>参考</h4>
+<ol>
+<li><a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture11-synchronization/lecture11-synchronization.pdf">UCI course on synchronization</a></li>
+<li><a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf">xv6 Book</a></li>
+</ol>
+    </article>
+
+
+    <hr>
+
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <ul class="list-inline text-center">
+                            <li>
+                                <a href="https://github.com/aphasiayc">
+                                    <span class="fa-stack fa-lg">
+                                        <i class="fa fa-circle fa-stack-2x"></i>
+                                        <i class="fa fa-github fa-stack-1x fa-inverse"></i>
+                                    </span>
+                                </a>
+                            </li>
+                    </ul>
+<p class="copyright text-muted">
+    Blog powered by <a href="http://getpelican.com">Pelican</a>,
+    which takes great advantage of <a href="http://python.org">Python</a>. <br />        &copy;  aphasiayc
+</p>                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="/theme/js/jquery.min.js"></script>
+
+    <!-- Bootstrap Core JavaScript -->
+    <script src="/theme/js/bootstrap.min.js"></script>
+
+        <!-- Custom Theme JavaScript -->
+        <script src="/theme/js/clean-blog.min.js"></script>
+
+</body>
+
+</html>
