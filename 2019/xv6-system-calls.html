@@ -33,7 +33,7 @@
 
 
 
-        <meta name="description" content="一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...">
+        <meta name="description" content="一种重要的中断机制是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...">
 
         <meta name="author" content="aphasiayc">
 
@@ -46,7 +46,7 @@
 	<meta property="og:url" content="/2019/xv6-system-calls.html">
 	<meta property="og:title" content="xv6: system calls">
 	<meta property="article:published_time" content="2019-05-28 11:17:00+08:00">
-            <meta property="og:description" content="一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...">
+            <meta property="og:description" content="一种重要的中断机制是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user...">
 
             <meta property="og:image" content="/theme/images/post-bg.jpg">
 </head>
@@ -102,7 +102,7 @@
             <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
     <!-- Post Content -->
     <article>
-        <p>一种重要的中断机制就是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user mode下的应用程序没有足够操作的权限。对于这个问题，xv6的办法是由kernel提供一些预设的system call，用户程序通过IDT中的特殊gate，<code>T_SYSCALL</code>发起中断。<code>T_SYSCALL</code>允许user mode下的调用，在执行<code>int</code>指令的过程中进行提权进入kernel mode，然后由kenrel执行指定的操作。</p>
+        <p>一种重要的中断机制是应用程序发起system call，要求kernel提供某些服务。xv6中各种涉及资源分配的操作，比如读写硬盘、申请新的内存空间等，都必须在kernel mode下进行，运行在user mode下的应用程序没有足够操作的权限。对此，xv6的办法是由kernel提供一些预设的system call，用户程序通过IDT中的特殊gate，<code>T_SYSCALL</code>发起中断。<code>T_SYSCALL</code>允许user mode下的调用，在执行<code>int</code>指令的过程中进行提权进入kernel mode，然后由kenrel执行指定的操作。</p>
 <h2>执行路径</h2>
 <p>xv6预设了一个系统函数表<code>syscalls</code>，将syscall number对应到具体的kernel中定义函数（函数体在sysproc.c、sysfile.c等文件中）：</p>
 <div class="highlight"><pre><span></span><span class="c1">// syscall.c</span>
@@ -114,7 +114,7 @@
 </pre></div>
 
 
-<p>但是这些函数只能在kernel mode中运行（kenrel code所处的内存分页<code>PTE_U</code>为0），用户程序不能直接调用。</p>
+<p>但是这些函数只能在kernel mode中运行（kernel code所处的内存分页<code>PTE_U</code>为0），用户程序不能直接调用。</p>
 <p>为给用户程序提供入口，xv6提供了一个头文件user.h中，其中声明了一系列system call。用户程序只要<code>include</code>这个文件，就可以像调用库函数一样调用这些system call。</p>
 <div class="highlight"><pre><span></span><span class="c1">// system calls</span>
 <span class="kt">int</span> <span class="nf">fork</span><span class="p">(</span><span class="kt">void</span><span class="p">);</span>
@@ -142,7 +142,7 @@
 
 
 <h3>一个栗子：fork</h3>
-<p>以下以system call中的<code>fork</code>函数为例。它的函数体定义在usys.S中：</p>
+<p>以下以system call中的<code>fork</code>函数，追踪它的调用路径。它的函数体定义在usys.S中：</p>
 <div class="highlight"><pre><span></span><span class="c1">// usys.S</span>
 <span class="cp">#define SYSCALL(name) \</span>
 <span class="cp">  .globl name; \</span>
@@ -224,7 +224,7 @@
 </pre></div>
 
 
-<p>shell从输入中得到一个命令之后，会从当前进程<code>fork</code>出一个子进程，然后在子进程中执行收到的命令。当前进程执行<code>wait</code>直至子进程返回。<code>fork</code>、<code>wait</code>都是system call。</p>
+<p>shell从输入中得到一个命令之后，会从当前进程<code>fork</code>出一个子进程，然后在子进程中执行收到的命令。当前进程执行<code>wait</code>直至子进程返回。<code>fork</code>、<code>wait</code>、<code>exit</code>都是system call。</p>
 <hr>
 <h4>参考</h4>
 <ol>

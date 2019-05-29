@@ -107,13 +107,13 @@
 <h2>中断的分类</h2>
 <p>中断包括了很多类型，表述上又涉及到许多含义有重叠的名词（比如interrupt、trap，以及exception、fault之类）。所以将中断作个分类考察似乎有助于理解。</p>
 <h3>exceptions</h3>
-<p>exceptions主要有两种来源，一种是程序在执行某个指令时抛出异常，按照处理方式的不同又分为三种：</p>
+<p>exceptions主要有两种来源，一种是处理器在执行某个指令时抛出异常，按照处理方式的不同又分为三种：</p>
 <ul>
 <li>fault：通常是遇到了某些可以修复的错误，所以在中断返回之后重新执行当前指令。</li>
 <li>trap：很多情况下是由用于调试，中断返回之后将顺序执行下一条指令</li>
 <li>abort：遇到了严重的、不可修复的问题，系统将终止当前进程</li>
 </ul>
-<p>另一种来源是程序通过<code>int</code>或者类似的指令主动发起中断。这相当于处理器给自己发出了一个中断信号，所以也被称为“software interrupts”。xv6中的system call就属于这个分类。software interrupts的处理方式与trap类似，返回之后顺序执行下一条指令。</p>
+<p>另一种来源是程序通过<code>int</code>或者类似的指令主动发起中断。这相当于处理器给自己发出了一个中断信号，所以也被称为“software interrupts”。xv6中的system call就属于这个类型。software interrupts的处理方式与trap类似，返回之后顺序执行下一条指令。</p>
 <h3>interrupts</h3>
 <p>古早时代的单核系统通过一个Programmable Interrupt Controller（PIC）来处理外部外部硬件设备发来的中断信号。外部设备专用于发起中断的输出Interrupt ReQuest (IRQ) Line统一连接到PIC上，经由PIC的I/O与CPU交互。在多核系统中处理中断的硬件要更为复制一些。x86用到了Advanced Programmable Interrupt Controller（APIC），大致的架构如下图所示：</p>
 <p><img alt="multiple apic system" src="/2019/images/interrupt.001.png"></p>
@@ -127,11 +127,12 @@
 <p>gate就进入中断后是否将<code>IF</code>标志位置零分为两种：interrupt gate(置零，暂停接受后续中断信号)和trap gate（不置零，允许套叠的中断）。此外还有一种特殊的task gate，gate中的segment selector指向<a href="#task-state-segment">task state segment</a>。</p>
 <p>系统通常预设一个interrupt descriptor table（IDT）。x86用寄存器%idtr保存IDT的起始地址。%idtr为48位，其中32位保存IDT起始地址，16位保存IDT的长度。xv6预设了一个包含256个entry的IDT。</p>
 <h3>privilege level</h3>
-<p>gate中其实包括了两个与权限控制相关的标志位：gate自身的DPL，以及segment selector的DPL。gate的DPL表示的是发起中断所必须的权限，而segment selector的DPL是执行interrupt handler时所需要的权限。xv6中所有interrupt handler都需要在kernel mode下执行，于是segment selector的DPL都为0。但gate的DPL可以不为零，例如xv6中的system call就是程序在user mode中发起中断，要求kernel提供某些服务，因此相应gate的DPL应当设为3。</p>
-<p>考虑权限检查，中断的处理流程如下：</p>
+<p>gate中其实包括了两个与权限控制相关的标志位：gate自身的DPL，以及segment selector的DPL。gate的DPL表示的是发起中断所必须的权限，而segment selector的DPL是执行interrupt handler时所需要的权限。</p>
+<p>xv6中所有interrupt/exception handler都需要在kernel mode下执行，于是segment selector的DPL都为0。但gate的DPL可以不为零，例如xv6中的system call就是程序在user mode中发起中断，要求kernel提供某些服务，因此相应gate的DPL应当设为3。另一方面处理器在发生错误抛出异常时会进入kernel mode，相应gate中的DPL通常设为0。</p>
+<p>考虑权限检查，发生中断的处理流程如下：</p>
 <ol>
 <li>根据中断的类型找到IDT中相应的gate</li>
-<li>比较gate的DPL和当前CPU的权限CPL（即当前%cs所指示的segment descriptor中的DPL）。由于privilege level取值越小表示权限越高，如果DPL&lt;CPL，则没有权限发起指定中断。在xv6中进程会直接被终止，但一般来说处理这种情况的方法是再发起一个exception，“general protection fault”。</li>
+<li>比较gate的DPL和当前CPU的权限CPL（即当前%cs所指示的segment descriptor中的DPL）。由于privilege level取值越小表示权限越高，如果DPL&lt;CPL，则没有权限发起指定中断。</li>
 <li>比较gate的DPL和gate中segement selector的DPL已决定是否需要进行权限提升。这个过程需要借助于<a href="#task-state-segment">task state segment</a></li>
 <li>备份当前%eflags、%cs和%eip的状态</li>
 <li>读取gate中的segment selector，据此去GDT中查找对应segment descriptor，获得segment base和segment limit</li>
