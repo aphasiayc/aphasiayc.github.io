@@ -104,6 +104,18 @@
     <article>
         <p>顾名思义，中断是处理器暂停当前顺序的控制流，转而执行另外指令的操作。触发中断通常有两种方式：CPU在执行指令过程中发生异常（同步方式），或者接收到了外部硬件发来的信号（异步方式）。按照Intel的分类，同步中断称为exception，而异步中断称为interrupt。通常处理器接受某个中断信号之后，会根据它的具体类型，跳转执行某个特定的interrupt/exception handler。</p>
 <p>中断是CPU和外部硬件设备之间，以及多核系统中各个CPU之间通信的一种重要的方式。在xv6中，它为kernel和user程序之间的交互提供了底层机制。</p>
+<p>这是xv6系列的第4篇。这个系列包括：</p>
+<ol>
+<li><a href="/2019/xv6-minimal-assembly.html">minimal assembly</a></li>
+<li><a href="/2019/xv6-how-kernel-boots.html">how system boots</a></li>
+<li><a href="/2019/xv6-address-space.html">address space</a></li>
+<li><a href="/2019/xv6-interrupts.html">interrupts</a></li>
+<li><a href="/2019/xv6-system-calls.html">system calls</a></li>
+<li><a href="/2019/xv6-process.html">process</a></li>
+<li><a href="/2019/xv6-context-switch.html">context switch</a></li>
+<li><a href="/2019/xv6-synchronization.html">synchronization</a></li>
+<li><a href="/2019/xv6-system-initialization.html">system initialization</a></li>
+</ol>
 <h2>中断的分类</h2>
 <p>中断包括了很多类型，表述上又涉及到许多含义有重叠的名词（比如interrupt、trap，以及exception、fault之类）。所以将中断作个分类考察似乎有助于理解。</p>
 <h3>exceptions</h3>

@@ -103,6 +103,18 @@
     <!-- Post Content -->
     <article>
         <p>通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。另外kernel在当前进程需要进行I/O等可能引起阻塞的操作时，可以选择将它挂起转而执行其他的进程，以避免在等待的过程中浪费过多的CPU时间。</p>
+<p>xv6系列第7篇，其他还包括：</p>
+<ol>
+<li><a href="/2019/xv6-minimal-assembly.html">minimal assembly</a></li>
+<li><a href="/2019/xv6-how-kernel-boots.html">how system boots</a></li>
+<li><a href="/2019/xv6-address-space.html">address space</a></li>
+<li><a href="/2019/xv6-interrupts.html">interrupts</a></li>
+<li><a href="/2019/xv6-system-calls.html">system calls</a></li>
+<li><a href="/2019/xv6-process.html">process</a></li>
+<li><a href="/2019/xv6-context-switch.html">context switch</a></li>
+<li><a href="/2019/xv6-synchronization.html">synchronization</a></li>
+<li><a href="/2019/xv6-system-initialization.html">system initialization</a></li>
+</ol>
 <h2>基础设施</h2>
 <h3>per-CPU state</h3>
 <p>xv6定义了<code>cpu</code>结构体：</p>

@@ -112,6 +112,18 @@
 <li>在进程中运行shell，为kernel和外界的交互提供入口。</li>
 </ul>
 <p>各个阶段层层递进，每个阶段的工作都为下一个阶段准备了必要的条件。</p>
+<p>这是xv6系列的第二篇。xv6系列包括：</p>
+<ol>
+<li><a href="/2019/xv6-minimal-assembly.html">minimal assembly</a></li>
+<li><a href="/2019/xv6-how-kernel-boots.html">how system boots</a></li>
+<li><a href="/2019/xv6-address-space.html">address space</a></li>
+<li><a href="/2019/xv6-interrupts.html">interrupts</a></li>
+<li><a href="/2019/xv6-system-calls.html">system calls</a></li>
+<li><a href="/2019/xv6-process.html">process</a></li>
+<li><a href="/2019/xv6-context-switch.html">context switch</a></li>
+<li><a href="/2019/xv6-synchronization.html">synchronization</a></li>
+<li><a href="/2019/xv6-system-initialization.html">system initialization</a></li>
+</ol>
 <h2>BIOS</h2>
 <p>x86启动时，系统的一个CPU成为Bootstrap Processor(BSP)，运行系统初始化指令。其余CPU都成为Application Processor，等待BSP的信号。</p>
 <p>BSP首先运行BIOS（Basic I/O System）中的指令。BIOS的工作是初始化硬件、从硬盘boot sector中读取boot loader（负责将kernel载入内存的程序）。xv6的boot loader是一段很短的指令（&lt;512 bytes），存储在第一个disk sector中。BIOS将boot loader载入到起始地址为<code>0x7c00</code>的内存中。</p>
@@ -291,7 +303,7 @@
 
 <p>至此进入kernel的<code>main</code>函数。此时系统状态如下图所示。注意此时系统实际只能操作4 MB的物理内存。</p>
 <p><img alt="end of kernel entry" src="/2019/images/boot.006.png"></p>
-<p><code>main</code>函数最主要的工作是启动系统中的第一个进程。“进程”是操作系统中一个及其关键的抽象，但在具体解释它之前我们需要先了解它的一些组成部分，包括地址空间、user mode和kernel mode、中断机制等。</p>
+<p><code>main</code>函数最主要的工作是启动系统中的第一个进程。“进程”是操作系统中一个及其关键的抽象，但在具体解释它之前我们需要先了解它的一些组成部分，包括user mode和kernel mode、<a href="/2019/xv6-address-space.html">address space</a>、<a href="/2019/xv6-interrupts.html">interrupts</a>机制等。</p>
 <hr>
 <h4>参考</h4>
 <ol>

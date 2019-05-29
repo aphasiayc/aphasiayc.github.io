@@ -103,6 +103,18 @@
     <!-- Post Content -->
     <article>
         <p>所谓“地址空间”是对于物理内存的一种抽象，它所描述的是一个应用程序所看到的系统内存分配状况。xv6的内存管理主要依靠分页的办法，通过分页表来为应用程序配置地址空间。每个进程各自维护一张独立的分页表，从而实现进程之间的内存隔离。进程内部则通过将地址空间切分user和kernel两个部分来实现权限的分级管理。</p>
+<p>本篇是xv6系列的第3篇。xv6系列包括：</p>
+<ol>
+<li><a href="/2019/xv6-minimal-assembly.html">minimal assembly</a></li>
+<li><a href="/2019/xv6-how-kernel-boots.html">how system boots</a></li>
+<li><a href="/2019/xv6-address-space.html">address space</a></li>
+<li><a href="/2019/xv6-interrupts.html">interrupts</a></li>
+<li><a href="/2019/xv6-system-calls.html">system calls</a></li>
+<li><a href="/2019/xv6-process.html">process</a></li>
+<li><a href="/2019/xv6-context-switch.html">context switch</a></li>
+<li><a href="/2019/xv6-synchronization.html">synchronization</a></li>
+<li><a href="/2019/xv6-system-initialization.html">system initialization</a></li>
+</ol>
 <h2>机制</h2>
 <h3>多级分页</h3>
 <p>使用分页机制管理内存时，系统需要借助分页表来维护从线性地址到物理地址的映射关系。分页表可能会很长，例如x86中内存地址长度为2<sup>32</sup>位。如果设定一页的长度为2<sup>12</sup>位（4 kB），那就总共需要2<sup>20</sup>（1,048,576）个page table entry(PTE)。假设一个PTE占用4 bytes，那么一张完整的分页表将占用4 MB内存。4 MB也许不能算是很大的开销，但为了实现内存隔离，各个进程维护各自独立的分页表，于是系统也许需要同时保存成百上千张分页表。如果没有适当的优化，分页表本身将占用若干GB的空间。</p>
