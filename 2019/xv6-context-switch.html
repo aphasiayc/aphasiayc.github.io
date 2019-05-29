@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+            <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <title>xv6: context switch</title>
+
+        <!-- Bootstrap Core CSS -->
+        <link href="/theme/css/bootstrap.min.css" rel="stylesheet">
+
+        <!-- Custom CSS -->
+        <link href="/theme/css/clean-blog.min.css" rel="stylesheet">
+
+        <!-- Code highlight color scheme -->
+            <link href="/theme/css/code_blocks/darkly.css" rel="stylesheet">
+
+
+        <!-- Custom Fonts -->
+        <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+        <link href='https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic' rel='stylesheet' type='text/css'>
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+        <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+        <!--[if lt IE 9]>
+            <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+            <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+
+
+        <meta name="description" content="通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源...">
+
+        <meta name="author" content="aphasiayc">
+
+
+	                <meta property="og:locale" content="">
+		<meta property="og:site_name" content="Notes">
+
+	<meta property="og:type" content="article">
+            <meta property="article:author" content="/author/aphasiayc.html">
+	<meta property="og:url" content="/2019/xv6-context-switch.html">
+	<meta property="og:title" content="xv6: context switch">
+	<meta property="article:published_time" content="2019-05-29 16:20:00+08:00">
+            <meta property="og:description" content="通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源...">
+
+            <meta property="og:image" content="/theme/images/post-bg.jpg">
+</head>
+
+<body class="article-xv6-context-switch">
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-default navbar-custom navbar-fixed-top">
+        <div class="container-fluid">
+            <!-- Brand and toggle get grouped for better mobile display -->
+            <div class="navbar-header page-scroll">
+                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+                    <span class="sr-only">Toggle navigation</span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">Notes</a>
+            </div>
+
+            <!-- Collect the nav links, forms, and other content for toggling -->
+            <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+                <ul class="nav navbar-nav navbar-right">
+
+                </ul>
+            </div>
+            <!-- /.navbar-collapse -->
+        </div>
+        <!-- /.container -->
+    </nav>
+
+    <!-- Page Header -->
+        <header class="intro-header" style="background-image: url('/theme/images/post-bg.jpg')">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <div class="post-heading">
+                        <h1>xv6: context switch</h1>
+                        <span class="meta">Posted by
+                                <a href="/author/aphasiayc.html">aphasiayc</a>
+                             on Wed 29 May 2019
+                        </span>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+    <!-- Post Content -->
+    <article>
+        <p>通常应用程序都运行在某个进程中，但kernel不同。kernel并不对应任何进程，它的工作是建立关于进程的抽象，创建并管理各个进程。kernel、一个至关重要的功能是在实现进程之间切换。由kernel来调配各个应用程序的运行时间，可以防止程序过多（甚至是恶意）地占用系统资源。另外kernel在当前进程需要进行I/O等可能引起阻塞的操作时，可以选择将它挂起转而执行其他的进程，以避免在等待I/O的过程中浪费过多的CPU时间。</p>
+<h2>基础设施</h2>
+<h3>per-CPU state</h3>
+<p>xv6定义了<code>cpu</code>结构体：</p>
+<div class="highlight"><pre><span></span><span class="c1">// proc.h</span>
+<span class="k">struct</span> <span class="n">cpu</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">context</span> <span class="o">*</span><span class="n">scheduler</span><span class="p">;</span>   <span class="c1">// swtch() here to enter scheduler</span>
+  <span class="k">struct</span> <span class="n">taskstate</span> <span class="n">ts</span><span class="p">;</span>         <span class="c1">// Used by x86 to find stack for interrupt</span>
+  <span class="k">struct</span> <span class="n">segdesc</span> <span class="n">gdt</span><span class="p">[</span><span class="n">NSEGS</span><span class="p">];</span>   <span class="c1">// x86 global descriptor table</span>
+  <span class="k">volatile</span> <span class="n">uint</span> <span class="n">started</span><span class="p">;</span>       <span class="c1">// Has the CPU started?</span>
+  <span class="p">...</span>
+  <span class="c1">// Cpu-local storage variables; see below</span>
+  <span class="k">struct</span> <span class="n">cpu</span> <span class="o">*</span><span class="n">cpu</span><span class="p">;</span>
+  <span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">proc</span><span class="p">;</span>           <span class="c1">// The currently-running process.</span>
+<span class="p">};</span>
+
+<span class="c1">// mp.c</span>
+<span class="k">struct</span> <span class="n">cpu</span> <span class="n">cpus</span><span class="p">[</span><span class="n">NCPU</span><span class="p">];</span>
+</pre></div>
+
+
+<p>其中包括了调度线程的context<code>scheduler</code>、管理task state地址的<code>ts</code>、公用的SDT<code>gdt</code>等。xv6创建了一个数组<code>cpus</code>统一管理各个CPU的状态。</p>
+<p>在系统初始化时，<code>seginit</code>设置各个CPU的GDT：</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">seginit</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">cpu</span> <span class="o">*</span><span class="n">c</span><span class="p">;</span>
+
+  <span class="n">c</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">cpus</span><span class="p">[</span><span class="n">cpunum</span><span class="p">()];</span>  
+  <span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_KCODE</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEG</span><span class="p">(</span><span class="n">STA_X</span><span class="o">|</span><span class="n">STA_R</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mh">0xffffffff</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+  <span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_KDATA</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEG</span><span class="p">(</span><span class="n">STA_W</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mh">0xffffffff</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+  <span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_UCODE</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEG</span><span class="p">(</span><span class="n">STA_X</span><span class="o">|</span><span class="n">STA_R</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mh">0xffffffff</span><span class="p">,</span> <span class="n">DPL_USER</span><span class="p">);</span>
+  <span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_UDATA</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEG</span><span class="p">(</span><span class="n">STA_W</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mh">0xffffffff</span><span class="p">,</span> <span class="n">DPL_USER</span><span class="p">);</span>
+
+  <span class="c1">// Map cpu and proc -- these are private per cpu.</span>
+  <span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">[</span><span class="n">SEG_KCPU</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEG</span><span class="p">(</span><span class="n">STA_W</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">cpu</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+
+  <span class="n">lgdt</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">gdt</span><span class="p">));</span>
+  <span class="n">loadgs</span><span class="p">(</span><span class="n">SEG_KCPU</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">);</span>
+
+  <span class="c1">// Initialize cpu-local storage.</span>
+  <span class="n">cpu</span> <span class="o">=</span> <span class="n">c</span><span class="p">;</span>
+  <span class="n">proc</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>除了通用的若干segemnt descriptor（<code>SEG_KCODE</code>、<code>SEG_KDATA</code>、<code>SEG_UCODE</code>、<code>SEG_UDATA</code>，各自定义了0～4 GB的线性地址空间）之外，GDT还包含了一个特殊的元素<code>SEG_KCPU</code>。<code>SEG_KCPU</code>描述的segment长度为8 bytes，起始地址指向<code>cpus</code>数组中与当前CPU对应的元素<code>cpus[cpunum()]</code>中的<code>cpu</code>字段。所以这个segment其实只包含两个元素：与当前CPU对应的<code>cpu</code>结构体的地址，和与当前CPU上运行的进程对应的<code>proc</code>结构体的地址。寄存器%gs中保存了指向<code>SEG_KCPU</code>的segment selector。</p>
+<p>xv6可以通过以下方式访问当前CPU及其中运行的进程的状态：</p>
+<div class="highlight"><pre><span></span><span class="k">extern</span> <span class="k">struct</span> <span class="n">cpu</span> <span class="o">*</span><span class="n">cpu</span> <span class="nf">asm</span><span class="p">(</span><span class="s">&quot;%gs:0&quot;</span><span class="p">);</span>       <span class="c1">// &amp;cpus[cpunum()]</span>
+<span class="k">extern</span> <span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">proc</span> <span class="nf">asm</span><span class="p">(</span><span class="s">&quot;%gs:4&quot;</span><span class="p">);</span>     <span class="c1">// cpus[cpunum()].proc</span>
+</pre></div>
+
+
+<h3>context</h3>
+<p>为实现切换前后寄存器状态的保存和恢复，xv6定义了结构体<code>context</code>：</p>
+<div class="highlight"><pre><span></span><span class="k">struct</span> <span class="n">context</span> <span class="p">{</span>
+  <span class="n">uint</span> <span class="n">edi</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">esi</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">ebx</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">ebp</span><span class="p">;</span>
+  <span class="n">uint</span> <span class="n">eip</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>context</code>包含了3个通用寄存器%edi、%esi和%ebx，base pointer即%ebp，以及program counter即%eip。这样的定义与调用规则相关。</p>
+<h2>进程间切换</h2>
+<p>kernel需要经常在各个进程之间切换，让各个进程都得到一定的在CPU上执行的时间窗口。进程的切换意味着它们的寄存器状态、栈以及program counter的切换。进程切换必须在kernel mode下进行。</p>
+<h3>context switch</h3>
+<p><code>swtch</code>函数需要两个参数，第一个参数是一个指向指针的指针（<code>struct context **old</code>），被指的内存位置将用来保存旧进程kernel stack的最终位置；第二个参数是指向新进程的kernel stack最终位置的指针（<code>struct context *new</code>）。</p>
+<p>进入<code>swtch</code>之后，首先将参数从旧进程的栈上备份到寄存器%eax（<code>old</code>）和%edx（<code>new</code>）中。根据调用规则，首先将%ebp压栈，然后将约定由被调函数备份的%ebx、%esi和%edi压栈。至此context结构体已经构建完毕。</p>
+<p>最关键的步骤是从旧进程的栈切换到新进程的栈。<code>swtch</code>将%esp备份到<code>old</code>指针指向的内存位置，然后将<code>new</code>载入%esp中。最后从新进程的栈上恢复上一次切出时所保存的context，依次读出%edi、%esi、%ebx和%ebp（与压栈顺序相反）后，%eip在执行<code>ret</code>指令时恢复。</p>
+<div class="highlight"><pre><span></span><span class="o">#</span> <span class="n">void</span> <span class="n">swtch</span><span class="p">(</span><span class="n">struct</span> <span class="n">context</span> <span class="o">**</span><span class="k">old</span><span class="p">,</span> <span class="n">struct</span> <span class="n">context</span> <span class="o">*</span><span class="k">new</span><span class="p">);</span>
+<span class="p">.</span><span class="n">globl</span> <span class="n">swtch</span>
+<span class="n">swtch</span><span class="p">:</span>
+  <span class="n">movl</span> <span class="mi">4</span><span class="p">(</span><span class="o">%</span><span class="n">esp</span><span class="p">),</span> <span class="o">%</span><span class="n">eax</span>    <span class="o">#</span> <span class="n">struct</span> <span class="n">context</span> <span class="o">**</span><span class="k">old</span>
+  <span class="n">movl</span> <span class="mi">8</span><span class="p">(</span><span class="o">%</span><span class="n">esp</span><span class="p">),</span> <span class="o">%</span><span class="n">edx</span>    <span class="o">#</span> <span class="n">struct</span> <span class="n">context</span> <span class="o">*</span><span class="k">new</span>
+
+  <span class="o">#</span> <span class="n">Save</span> <span class="k">old</span> <span class="n">callee</span><span class="o">-</span><span class="n">save</span> <span class="n">registers</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">ebp</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">ebx</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">esi</span>
+  <span class="n">pushl</span> <span class="o">%</span><span class="n">edi</span>
+
+  <span class="o">#</span> <span class="n">Switch</span> <span class="n">stacks</span>
+  <span class="n">movl</span> <span class="o">%</span><span class="n">esp</span><span class="p">,</span> <span class="p">(</span><span class="o">%</span><span class="n">eax</span><span class="p">)</span>
+  <span class="n">movl</span> <span class="o">%</span><span class="n">edx</span><span class="p">,</span> <span class="o">%</span><span class="n">esp</span>
+
+  <span class="o">#</span> <span class="k">Load</span> <span class="k">new</span> <span class="n">callee</span><span class="o">-</span><span class="n">save</span> <span class="n">registers</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">edi</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">esi</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">ebx</span>
+  <span class="n">popl</span> <span class="o">%</span><span class="n">ebp</span>
+  <span class="n">ret</span>
+</pre></div>
+
+
+<p>如果追踪各个寄存器的状态的话，根据调用规则，%eax、%ecx、%edx在进入<code>swtch</code>函数之前压栈，%eip在执行<code>call</code>指令时压栈，%ebp、%ebx、%esi、%edi在<code>swtch</code>函数中通过<code>pushl</code>指令压栈（注意它们的顺序，它们和%eip共同构成了<code>context</code>结构体），最后%esp在两个进程的kernel stack之间切换。</p>
+<h3>timer interrupt</h3>
+<p>xv6使用强制性的调度机制，定时地在进程间切换，以保证各个进程都有被执行的机会。主板上的计时器定时发出中断信号<code>IRQ_TIMER</code>。在IDT中，所有有外部I/O设备发来的interrupt信号都被对应到序号<code>IRQ0</code>（数值32）之后的gate上。于是处理器经由序号为<code>IRQ0+IRQ_TIMER</code>的gate进入<code>trap</code>函数：</p>
+<div class="highlight"><pre><span></span><span class="c1">// trap.c</span>
+<span class="k">extern</span> <span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">proc</span> <span class="nf">asm</span><span class="p">(</span><span class="s">&quot;%gs:4&quot;</span><span class="p">);</span>     <span class="c1">// cpus[cpunum()].proc</span>
+
+<span class="kt">void</span> <span class="nf">trap</span><span class="p">(</span><span class="k">struct</span> <span class="n">trapframe</span> <span class="o">*</span><span class="n">tf</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">proc</span> <span class="o">&amp;&amp;</span> <span class="n">proc</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">==</span> <span class="n">RUNNING</span> <span class="o">&amp;&amp;</span> <span class="n">tf</span><span class="o">-&gt;</span><span class="n">trapno</span> <span class="o">==</span> <span class="n">T_IRQ0</span><span class="o">+</span><span class="n">IRQ_TIMER</span><span class="p">)</span>
+    <span class="n">yield</span><span class="p">();</span>
+<span class="p">}</span>
+
+<span class="c1">// proc.c</span>
+<span class="kt">void</span> <span class="nf">yield</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>  <span class="c1">//DOC: yieldlock</span>
+  <span class="n">proc</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">=</span> <span class="n">RUNNABLE</span><span class="p">;</span>
+  <span class="n">sched</span><span class="p">();</span>
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>trap</code>函数检查<code>trapno</code>，然后进入<code>yield</code>函数令当前进程让出CPU。yield首先获得<code>ptable</code>锁。然后将当前进程的状态设为<code>RUNNABLE</code>，然后进入调度函数<code>sched</code>。注意从获得<code>ptable</code>锁之后，中断已经被禁止。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">sched</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">intena</span><span class="p">;</span>
+
+  <span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="n">holding</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">))</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;sched ptable.lock&quot;</span><span class="p">);</span>
+  <span class="k">if</span><span class="p">(</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">ncli</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">panic</span><span class="p">(</span><span class="s">&quot;sched locks&quot;</span><span class="p">);</span>
+  <span class="p">...</span>
+  <span class="n">intena</span> <span class="o">=</span> <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">intena</span><span class="p">;</span>
+  <span class="n">swtch</span><span class="p">(</span><span class="o">&amp;</span><span class="n">proc</span><span class="o">-&gt;</span><span class="n">context</span><span class="p">,</span> <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">scheduler</span><span class="p">);</span>
+  <span class="n">cpu</span><span class="o">-&gt;</span><span class="n">intena</span> <span class="o">=</span> <span class="n">intena</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p><code>sched</code>首先会检查当前进程是否锁定了<code>ptable</code>，以及是否释放了其他所有的锁（为避免切换进程之后出现死锁的情况）。然后通过<code>swtch</code>从当前进程切换到CPU的调度线程<code>cpu-&gt;scheduler</code>中。</p>
+<h3>scheduler</h3>
+<p>CPU的调度线程是初始化时为实现进程切换而准备的一个特殊“线程”，<code>scheduler</code>处于一个循环之中：它首先锁定<code>ptable</code>，然后遍历进程表，找到一个<code>RUNNABLE</code>的进程<code>p</code>，将它载入<code>cpu</code>结构体的<code>proc</code>字段之中，通过<code>switchuvm</code>将进程<code>p</code>的task state保存到<code>cpu</code>的<code>ts</code>字段之中，然后通过<code>swtch</code>切换到进程<code>p</code>中。</p>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">scheduler</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">proc</span> <span class="o">*</span><span class="n">p</span><span class="p">;</span>
+
+  <span class="k">for</span><span class="p">(;;){</span>
+    <span class="c1">// Enable interrupts on this processor.</span>
+    <span class="n">sti</span><span class="p">();</span>
+
+    <span class="c1">// Loop over process table looking for process to run.</span>
+    <span class="n">acquire</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+    <span class="k">for</span><span class="p">(</span><span class="n">p</span> <span class="o">=</span> <span class="n">ptable</span><span class="p">.</span><span class="n">proc</span><span class="p">;</span> <span class="n">p</span> <span class="o">&lt;</span> <span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">proc</span><span class="p">[</span><span class="n">NPROC</span><span class="p">];</span> <span class="n">p</span><span class="o">++</span><span class="p">){</span>
+      <span class="k">if</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">!=</span> <span class="n">RUNNABLE</span><span class="p">)</span>
+        <span class="k">continue</span><span class="p">;</span>
+
+      <span class="n">proc</span> <span class="o">=</span> <span class="n">p</span><span class="p">;</span>
+      <span class="n">switchuvm</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+      <span class="n">p</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">=</span> <span class="n">RUNNING</span><span class="p">;</span>
+      <span class="n">swtch</span><span class="p">(</span><span class="o">&amp;</span><span class="n">cpu</span><span class="o">-&gt;</span><span class="n">scheduler</span><span class="p">,</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">context</span><span class="p">);</span>
+      <span class="n">switchkvm</span><span class="p">();</span>
+
+      <span class="c1">// Process is done running for now.</span>
+      <span class="c1">// It should have changed its p-&gt;state before coming back.</span>
+      <span class="n">proc</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<p>此时进程<code>p</code>有两种情况，一种是处于上一次从CPU中切出的状态中，它的执行流程处于<code>sched</code>函数中<code>swtch</code>结束之后的位置。它将逆着之前收到timer interrupt之后的处理流程运行，从<code>sched</code>返回到<code>yield</code>中，释放<code>ptable</code>锁，然后返回<code>trap</code>函数中，然后进入<code>trapret</code>过程从中断中返回。另一种情况<code>p</code>是新创建的进程（通过<code>fork</code>或者<code>userinit</code>），它将进入<code>forkret</code>，释放<code>ptable</code>锁，最后同样进入<code>trapret</code>过程。</p>
+<p>一段时间之后，当进程<code>p</code>再次收到timer interrupt信号，它将再次通过<code>swtch</code>切换到CPU的<code>scheduler</code>中。此时<code>scheduler</code>位于<code>swtch</code>结束的位置，接下来它将释放<code>ptable</code>锁然后进入下一个循环，寻找新的<code>RUNNABLE</code>进程。</p>
+<p>总结来说，在两个用户进程之间切换时需要CPU的调度线程作为中介，进程切换的过程如下图所示。</p>
+<p><img alt="switch between two processes" src="/2019/images/switch.001.png"></p>
+<p>xv6的调度器顺序遍历进程表，找到一个可执行进程就进行切换。这难以保证公平，也很难实现优先级控制等功能。现实中的调度器通常会支持更为复杂的调度策略。</p>
+<p>另外在进程切换的过程中还有若干值得注意的细节：</p>
+<ul>
+<li><code>scheduler</code>在每次进入循环就对<code>ptable</code>加锁，直至离开才解锁，所以在<code>scheduler</code>中绝大部分时间<code>ptable</code>都处于锁定状态。每次加锁解锁是为了避免在进程表中找不到<code>RUNNABLE</code>进程时，各个CPU的调度线程陷入死锁的状态。</li>
+<li>通常对一个锁来说，进程在加锁的同时也应该负责解锁的操作。但在进程切换过程中的<code>ptable</code>锁是由切出进程加锁，由切入进程解锁。其中一个例子就是<code>forkret</code>。<code>forkret</code>是一个新建进程自创建完毕之后开始运行的第一步，而它的第一个操作就是对<code>ptable</code>解锁。这看似奇怪的操作是因为进入<code>forkret</code>函数的路径是由<code>scheduler</code>进行context switch，而<code>scheduler</code>在<code>swtch</code>之前对<code>ptable</code>加了锁。</li>
+</ul>
+<div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">forkret</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+  <span class="p">...</span>
+  <span class="c1">// Still holding ptable.lock from scheduler.</span>
+  <span class="n">release</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptable</span><span class="p">.</span><span class="n">lock</span><span class="p">);</span>
+  <span class="p">...</span>
+<span class="p">}</span>
+</pre></div>
+
+
+<hr>
+<h4>参考</h4>
+<ol>
+<li><a href="https://www.ics.uci.edu/~aburtsev/143A/lectures/lecture10-context-switch/lecture10-context-switch.pdf">UCI course on context switch</a></li>
+<li><a href="https://pdos.csail.mit.edu/6.828/2012/xv6/book-rev7.pdf">xv6 Book</a></li>
+</ol>
+    </article>
+
+
+    <hr>
+
+            </div>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
+                    <ul class="list-inline text-center">
+                            <li>
+                                <a href="https://github.com/aphasiayc">
+                                    <span class="fa-stack fa-lg">
+                                        <i class="fa fa-circle fa-stack-2x"></i>
+                                        <i class="fa fa-github fa-stack-1x fa-inverse"></i>
+                                    </span>
+                                </a>
+                            </li>
+                    </ul>
+<p class="copyright text-muted">
+    Blog powered by <a href="http://getpelican.com">Pelican</a>,
+    which takes great advantage of <a href="http://python.org">Python</a>. <br />        &copy;  aphasiayc
+</p>                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="/theme/js/jquery.min.js"></script>
+
+    <!-- Bootstrap Core JavaScript -->
+    <script src="/theme/js/bootstrap.min.js"></script>
+
+        <!-- Custom Theme JavaScript -->
+        <script src="/theme/js/clean-blog.min.js"></script>
+
+</body>
+
+</html>
